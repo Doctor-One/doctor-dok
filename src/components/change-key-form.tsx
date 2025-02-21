@@ -142,7 +142,7 @@ export function ChangeKeyForm({
             id="currentKey"
             {...register("currentKey", { required: true,
               validate: {
-                databaseId: userKeyValidator
+                currentKey: userKeyValidator
               }
             })}
           />
