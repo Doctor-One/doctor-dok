@@ -859,7 +859,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
-      window.open(url);
+      
+      // Create a temporary anchor element and click it (works better on iOS Safari)
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = attachment.displayName || 'attachment';
+      link.target = '_blank';
+      link.style.display = 'none';
+      
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       toast.error('Error downloading attachment ' + error);
     }
