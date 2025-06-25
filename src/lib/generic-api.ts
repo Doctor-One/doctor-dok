@@ -132,10 +132,8 @@ export async function getTemporaryPassedMasterKeyFromRequest(request: NextReques
             return { masterKey: null, encryptionKey: null };
         }
         
-        console.log('OTP: ', otp);
         const keyEncryptionTools = new EncryptionUtils(otp); // should be the same as the one used to encrypt the data
         encryptionKey = await keyEncryptionTools.decrypt(timeBasedEncryptionKey);
-        console.log('Encryption Key: ', encryptionKey);
 
         const masterKeyEncryptionTools = new EncryptionUtils(encryptionKey);
         masterKey = await masterKeyEncryptionTools.decrypt(encryptedMasterKey);
@@ -166,9 +164,7 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
             NextResponse.json({ message: 'Unauthorized', status: 401 });
             throw new Error('Unauthorized. Wrong Key.');
         } else {
-            // Generate and store OTP for this user session
             const keyLocatorHash = decoded.payload.keyLocatorHash as string;
-            otpManager.generateAndStoreOTP(keyLocatorHash);
 
             const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey, keyLocatorHash);
 
