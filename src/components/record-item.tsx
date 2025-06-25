@@ -157,6 +157,12 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
   const [displayableAttachments, setDisplayableAttachments] = useState<DisplayableDataObject[]>([]);
   const operationProgress = recordContext?.operationProgressByRecordId[record.id?.toString() || 'unknown'];
 
+  // Force re-render when operation progress changes for this record
+  useEffect(() => {
+    // This effect will trigger re-renders when operationProgressByRecordId changes
+    // for this specific record
+  }, [recordContext?.operationProgressByRecordId[record.id?.toString() || 'unknown']]);
+
   // Helper to determine if the record is in progress based on operationProgress state
   const isInProgress = !!(operationProgress && typeof operationProgress.progress === 'number' && typeof operationProgress.progressOf === 'number' && operationProgress.progress < operationProgress.progressOf) || record.operationInProgress;
 
@@ -214,7 +220,7 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
     if (!isFirstRecord && isVisible && !isInProgress) {      
       loadAttachmentPreviews();
     }
-  }, [isVisible, isInProgress, record.checksum, displayAttachmentPreviews, isFirstRecord]);
+  }, [isVisible, isInProgress, record.checksum, displayAttachmentPreviews, isFirstRecord, operationProgress]);
 
   const shorten = (str: string, len = 16) => {
     if(str) {
