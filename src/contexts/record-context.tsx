@@ -1786,6 +1786,20 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               
               if (recentFinishedOperations.length > 0) {
                 console.log('Found recently finished operations, refreshing records');
+                
+                // Clear operation progress state for records that have finished operations
+                setOperationProgressByRecordId(prev => {
+                  const updated = { ...prev };
+                  recentFinishedOperations.forEach(op => {
+                    const recordId = op.recordId?.toString();
+                    if (recordId && updated[recordId]) {
+                      console.log('Clearing operation progress state for finished operation:', recordId, op.operationName);
+                      delete updated[recordId];
+                    }
+                  });
+                  return updated;
+                });
+                
                 await listRecords(forFolder);
                 return recentFinishedOperations[0].operationLastStep;
               }
