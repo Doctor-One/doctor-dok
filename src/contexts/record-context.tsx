@@ -8,7 +8,7 @@ import { ConfigContext, ConfigContextType } from '@/contexts/config-context';
 import { toast } from 'sonner';
 import { sort } from 'fast-sort';
 import { EncryptedAttachmentApiClient } from '@/data/client/encrypted-attachment-api-client';
-import { DatabaseContext } from './db-context';
+import { DatabaseContext, DatabaseContextType } from './db-context';
 import { ChatContext, CreateMessageEx, MessageType, MessageVisibility, OnResultCallback } from './chat-context';
 import { convertDataContentToBase64String } from "ai";
 import { convert } from '@/lib/pdf2js-browser'
@@ -225,6 +225,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       history: { operationName: string; progress: number; progressOf: number; page: number; pages: number; message?: string; metadata: any; textDelta: string; pageDelta: string; recordText?: string; timestamp: number }[];
     }
   }>({});
+  const dbContextRef = useRef<DatabaseContextType | null>(null);
 
 
   useEffect(() => { // filter records when tags change
@@ -726,9 +727,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               // Use shared helper to check operation status
               const operationCheck = {
                 hasOngoingOperation: true,
-                isDifferentSession: operation.operationLastStepSessionId && operation.operationLastStepSessionId !== dbContext?.authorizedSessionId,
+                isDifferentSession: operation.operationLastStepSessionId && operation.operationLastStepSessionId !== dbContextRef.current?.authorizedSessionId,
                 operation: operation,
-                shouldResume: (operation.operationName === RegisteredOperations.Parse || operation.operationName === RegisteredOperations.Translate) && operation.operationLastStepSessionId === dbContext?.authorizedSessionId
+                shouldResume: (operation.operationName === RegisteredOperations.Parse || operation.operationName === RegisteredOperations.Translate) && operation.operationLastStepSessionId === dbContextRef.current?.authorizedSessionId
               };
               
               if (operationCheck.isDifferentSession) {
@@ -815,22 +816,22 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   const setupApiClient = async (config: ConfigContextType | null) => {
-    const masterKey = dbContext?.masterKey;
+    const masterKey = dbContextRef.current?.masterKey;
     const encryptionConfig: ApiEncryptionConfig = {
       secretKey: masterKey,
       useEncryption: true
     };
-    const client = new RecordApiClient('', dbContext, saasContext, encryptionConfig);
+    const client = new RecordApiClient('', dbContextRef.current, saasContext, encryptionConfig);
     return client;
   }
 
   const setupAttachmentsApiClient = async (config: ConfigContextType | null) => {
-    const masterKey = dbContext?.masterKey;
+    const masterKey = dbContextRef.current?.masterKey;
     const encryptionConfig: ApiEncryptionConfig = {
       secretKey: masterKey,
       useEncryption: true
     };
-    const client = new EncryptedAttachmentApiClient('', dbContext, saasContext, encryptionConfig);
+    const client = new EncryptedAttachmentApiClient('', dbContextRef.current, saasContext, encryptionConfig);
     return client;
   }
 
@@ -870,7 +871,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
-        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.encryptionKey as string) + '&token=' + dbContext?.accessToken;
+        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContextRef.current?.serverCommunicationKey as string, dbContextRef.current?.encryptionKey as string) + '&token=' + dbContextRef.current?.accessToken;
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
@@ -893,7 +894,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
 
   const calcChecksum = async (record: Record): Promise<string> => {
     const attachmentsHash = await sha256(record.attachments.map(ea => ea.storageKey).join('-'), 'attachments')
-    const cacheKey = `record-${record.id}-${attachmentsHash}-${dbContext?.databaseHashId}`;
+    const cacheKey = `record-${record.id}-${attachmentsHash}-${dbContextRef.current?.databaseHashId}`;
 
     return cacheKey;
   }
@@ -985,9 +986,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     })
   }
 
-  // Helper to get the operations API client
+  // Helper to get the operations API client with current dbContext
   const getOperationsApiClient = () => {
-    return new OperationsApiClient('', dbContext, saasContext, { useEncryption: false });
+    return new OperationsApiClient('', dbContextRef.current, saasContext, { useEncryption: false });
   };
 
   // Shared helper to check for ongoing operations for a specific record
@@ -1010,7 +1011,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       }
       
       // Check if operation is from a different session
-      if (ongoingOp.operationLastStepSessionId && ongoingOp.operationLastStepSessionId !== dbContext?.authorizedSessionId) {
+      if (ongoingOp.operationLastStepSessionId && ongoingOp.operationLastStepSessionId !== dbContextRef.current?.authorizedSessionId) {
         const timeFromLastStep = new Date().getTime() - new Date(ongoingOp.operationLastStep || '').getTime();
         if (timeFromLastStep < 2 * 60 * 1000) {
           return {
@@ -1057,10 +1058,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationRecordText: null,
       operationStartedOn: new Date().toISOString(),
       operationStartedOnUserAgent: navigator.userAgent,
-      operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+      operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationLastStep: new Date().toISOString(),
       operationLastStepUserAgent: navigator.userAgent,
-      operationLastStepSessionId: dbContext?.authorizedSessionId || null
+      operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null
     });
   };
 
@@ -1083,10 +1084,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationRecordText: null,
       operationStartedOn: new Date().toISOString(),
       operationStartedOnUserAgent: navigator.userAgent,
-      operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+      operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationLastStep: new Date().toISOString(),
       operationLastStepUserAgent: navigator.userAgent,
-      operationLastStepSessionId: dbContext?.authorizedSessionId || null,
+      operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationFinished: !error,
       operationErrored: !!error,
       operationErrorMessage: error ? getErrorMessage(error) : null,
@@ -1117,10 +1118,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         operationRecordText: metadata?.recordText || null,
         operationStartedOn: new Date().toISOString(),
         operationStartedOnUserAgent: navigator.userAgent,
-        operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+        operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
         operationLastStep: new Date().toISOString(),
         operationLastStepUserAgent: navigator.userAgent,
-        operationLastStepSessionId: dbContext?.authorizedSessionId || null,
+        operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null,
         operationFinished: finished,
         operationErrored: errored,
         operationErrorMessage: errorMessage,
@@ -1889,6 +1890,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   useEffect(() => {
     operationProgressByRecordIdRef.current = operationProgressByRecordId;
   }, [operationProgressByRecordId]);
+
+  useEffect(() => {
+    dbContextRef.current = dbContext;
+  }, [dbContext]);
 
   return (
     <RecordContext.Provider
