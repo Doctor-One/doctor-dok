@@ -27,5 +27,5 @@ export async function middleware(request: NextRequest) {
 }
  
 export const config = {
-  matcher: ['/((?!api/db|api/saas|_next/static|content|_next/image|img|onboarding|pdf.worker.mjs|manifest|favicon.ico|$).*)'],
+  matcher: ['/((?!api/db|api/saas|_next/static|content|download|_next/image|img|onboarding|pdf.worker.mjs|manifest|favicon.ico|$).*)'],
 }

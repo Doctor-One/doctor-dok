@@ -2,7 +2,7 @@ import '@enhances/with-resolvers';
 import React, { createContext, useState, useEffect, useContext, PropsWithChildren, useRef } from 'react';
 import { EncryptedAttachmentDTO, EncryptedAttachmentDTOEncSettings, RecordDTO } from '@/data/dto';
 import { RecordApiClient } from '@/data/client/record-api-client';
-import { ApiEncryptionConfig } from '@/data/client/base-api-client';
+import { ApiEncryptionConfig, encryptKeyForServer } from '@/data/client/base-api-client';
 import { DataLoadingStatus, DisplayableDataObject, EncryptedAttachment, Folder, Record, PostParseCallback, RegisteredOperations, AVERAGE_PAGE_TOKENS } from '@/data/client/models';
 import { ConfigContext, ConfigContextType } from '@/contexts/config-context';
 import { toast } from 'sonner';
@@ -853,9 +853,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const downloadAttachment = async (attachment: EncryptedAttachmentDTO, useCache = true) => {
     try {
       let url = '';
-      if (isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE)) {
+      if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
-        url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache, true) as string;
+        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.encryptionKey as string) + '&token=' + dbContext?.accessToken;
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
@@ -893,7 +893,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         if (ea.mimeType === 'application/pdf') {
 
           let imagesArray: string[] = [];
-          if ((isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE)) {
+          if ((isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE)) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
             console.log('Converting PDF to images server-side');
             const apiClient = new PdfConversionApiClient('', dbContext, saasContext);
             const result = await apiClient.convertPdf({

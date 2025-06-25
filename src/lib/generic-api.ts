@@ -10,6 +10,7 @@ import { PlatformApiClient } from "@/data/server/platform-api-client";
 import NodeCache from "node-cache";
 import { ApiError } from "@/data/client/base-api-client";
 import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
+import { otpManager } from "./otp-manager";
 
 const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */});
 
@@ -119,9 +120,37 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
     }
 }
 
-export async function authorizeRequestContext(request: Request, response?: NextResponse): Promise<AuthorizedRequestContext> {
+export async function getTemporaryPassedMasterKeyFromRequest(request: NextRequest, encryptedMasterKey: string, keyLocatorHash: string): Promise<{masterKey: string | null, encryptionKey: string | null}> {
+    let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
+
+    let masterKey = null;
+    let encryptionKey = null;
+    if (timeBasedEncryptionKey) {
+        const otp = otpManager.getOTP(keyLocatorHash);
+        if (!otp) {
+            console.log(`No OTP found for keyLocatorHash: ${keyLocatorHash}, cannot decrypt`);
+            return { masterKey: null, encryptionKey: null };
+        }
+        
+        const keyEncryptionTools = new EncryptionUtils(otp); // should be the same as the one used to encrypt the data
+        encryptionKey = await keyEncryptionTools.decrypt(timeBasedEncryptionKey);
+
+        const masterKeyEncryptionTools = new EncryptionUtils(encryptionKey);
+        masterKey = await masterKeyEncryptionTools.decrypt(encryptedMasterKey);
+    }
+
+    return {masterKey, encryptionKey};
+}
+
+export async function authorizeRequestContext(request: NextRequest, response?: NextResponse): Promise<AuthorizedRequestContext> {
+    // Try to get token from Authorization header first, then from query params
     const authorizationHeader = request.headers.get('Authorization');
-    const jwtToken = authorizationHeader?.replace('Bearer ', '');
+    let jwtToken = authorizationHeader?.replace('Bearer ', '');
+    
+    // If not found in header, try query params
+    if (!jwtToken) {
+        jwtToken = request.nextUrl.searchParams.get('token') || undefined;
+    }
 
     if (jwtToken) {
         const decoded = await jwtVerify(jwtToken as string, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
@@ -135,16 +164,9 @@ export async function authorizeRequestContext(request: Request, response?: NextR
             NextResponse.json({ message: 'Unauthorized', status: 401 });
             throw new Error('Unauthorized. Wrong Key.');
         } else {
+            const keyLocatorHash = decoded.payload.keyLocatorHash as string;
 
-            let masterKey = null;
-            let encryptionKey = null;
-            if (request.headers.get('Encryption-Key')) {
-                const keyEncryptionTools = new EncryptionUtils(decoded.payload.serverCommunicationKey as string);
-                encryptionKey = await keyEncryptionTools.decrypt(request.headers.get('Encryption-Key') as string);
-
-                const masterKeyEncryptionTools = new EncryptionUtils(encryptionKey);
-                masterKey = await masterKeyEncryptionTools.decrypt((authResult as KeyDTO).encryptedMasterKey);
-            }
+            const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey, keyLocatorHash);
 
             const keyACL = (authResult as KeyDTO).acl ?? null;
             const aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
@@ -209,7 +231,7 @@ export async function genericGET<T extends { [key:string]: any }>(request: NextR
 }
 
 
-export async function genericDELETE<T extends { [key:string]: any }>(request: Request, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult>{
+export async function genericDELETE<T extends { [key:string]: any }>(request: NextRequest, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult>{
     try {
         if(await repo.delete(query)) {
             return {

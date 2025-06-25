@@ -5,6 +5,7 @@ import { generateTimeBasedPassword } from "@/lib/totp";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
 import {SignJWT, jwtVerify, type JWTPayload} from 'jose'
 import { NextRequest } from "next/server";
+import { otpManager } from "@/lib/otp-manager";
 
 // clear all the database
 export async function POST(request: NextRequest) {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
             } else {
 
                 const alg = 'HS256'
-                const tokenPayload = { databaseIdHash: authRequest.databaseIdHash, keyHash: authRequest.keyHash, keyLocatorHash: authRequest.keyLocatorHash, serverCommunicationKey: generateTimeBasedPassword() }
+                const tokenPayload = { databaseIdHash: authRequest.databaseIdHash, keyHash: authRequest.keyHash, keyLocatorHash: authRequest.keyLocatorHash }
                 const accessToken = await new SignJWT(tokenPayload)
                 .setProtectedHeader({ alg })
                 .setIssuedAt()
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest) {
                         accessToken:  accessToken,
                         refreshToken: refreshToken,
                         acl: keyACL ? JSON.parse(keyACL) : defaultKeyACL,
+                        serverCommunicationKey: otpManager.generateAndStoreOTP(authRequest.keyLocatorHash),
                         saasContext: saasContext ? saasContext.saasContex : null
                     },
                     status: 200

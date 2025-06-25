@@ -330,13 +330,11 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
             )
           }
 
-          { isIOS() ? null : (
           <div className="mt-2 flex flex-wrap items-center gap-2 w-full">
             {record.attachments.map((attachment, index) => (
               <div key={index} className="text-sm inline-flex w-auto"><Button variant="outline" onClick={() => recordContext?.downloadAttachment(attachment.toDTO(), false)}><PaperclipIcon className="w-4 h-4 mr-2" /> {shorten(attachment.displayName)}</Button></div>
             ))}
           </div>
-          )}
           {displayAttachmentPreviews && record.attachments.length > 0  && ! isInProgress ? (
             displayableAttachments.length > 0 ? (
               <div className="mt-2 flex-wrap flex items-center justify-left min-h-100 w-full">
@@ -509,7 +507,7 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
                 </div>
               )}
 
-              {record.attachments.length > 0 && !isIOS() && ( // TODO: fix this for iOS - we need to download decrypted attachments on iOS
+              {record.attachments.length > 0 && ( // TODO: fix this for iOS - we need to download decrypted attachments on iOS
                 <div className="mt-2 flex flex-wrap items-center gap-2 w-full">
                   {record.attachments.map((attachment, index) => (
                     <div key={index} className="text-sm inline-flex w-auto">

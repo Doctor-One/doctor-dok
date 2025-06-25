@@ -33,9 +33,19 @@ export default class ServerEncryptedAttachmentRepository extends BaseRepository<
        return Promise.resolve(existingRecord as EncryptedAttachmentDTO)   
     }    
 
-    async findAll(): Promise<EncryptedAttachmentDTO[]> {
+    async findAll(query?: IQuery): Promise<EncryptedAttachmentDTO[]> {
         const db = (await this.db());
-        return Promise.resolve(db.select().from(encryptedAttachments).all() as EncryptedAttachmentDTO[])
+        let dbQuery = db.select().from(encryptedAttachments);
+        if(query?.filter){
+            if(query.filter['storageKey']){
+                dbQuery.where(eq(encryptedAttachments.storageKey, query.filter['storageKey'] as string));
+            }
+            if(query.filter['id']){
+                dbQuery.where(eq(encryptedAttachments.id, parseInt(query.filter['id'] as string)));
+            }
+
+        }
+        return Promise.resolve(dbQuery.all() as EncryptedAttachmentDTO[])
     }
 
 }

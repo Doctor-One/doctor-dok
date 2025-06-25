@@ -7,7 +7,6 @@ import { EncryptionUtils, generateEncryptionKey, sha256 } from '@/lib/crypto';
 import { toast } from 'sonner';
 import { ZodIssue } from 'zod';
 import { SaaSContext } from './saas-context';
-import { generateTimeBasedPassword } from '@/lib/totp';
 import { jwtVerify } from 'jose';
 import { nanoid } from 'nanoid';
 const argon2 = require("argon2-browser");
@@ -46,7 +45,8 @@ export type DatabaseContextType = {
     encryptionKey: string;
     setEncryptionKey: (key: string) => void; 
 
-    getServerCommunicationKey: () => Promise<string>;
+    serverCommunicationKey: string;
+    setServerCommunicationKey: (key: string) => void;
 
     acl: KeyACL | null;
     setACL: (acl: KeyACL | null) => void;
@@ -102,6 +102,7 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
     const [databaseHashId, setDatabaseHashId] = useState<string>('');
     const [keyLocatorHash, setKeyLocatorHash] = useState<string>('');
     const [keyHash, setKeyHash] = useState<string>('');
+    const [serverCommunicationKey, setServerCommunicationKey] = useState<string>('');
     const [keyHashParams, setKeyHashParams] = useState<KeyHashParamsDTO>({
         hashLen: 0,
         salt: '',
@@ -205,6 +206,8 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
             setAccesToken((apiResponse as RefreshDbResponse).data.accessToken);
             setRefreshToken((apiResponse as RefreshDbResponse).data.refreshToken);
 
+            setServerCommunicationKey((apiResponse as RefreshDbResponse).data.serverCommunicationKey);
+
             setAuthStatus(DatabaseAuthStatus.Authorized);
             return {
                 success: true,
@@ -298,6 +301,8 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
                 setRefreshToken((authResponse as AuthorizeDbResponse).data.refreshToken);
                 setAuthStatus(DatabaseAuthStatus.Authorized);
 
+                setServerCommunicationKey((authResponse as AuthorizeDbResponse).data.serverCommunicationKey);
+
                 if(typeof localStorage !== 'undefined') {
                     localStorage.setItem('keepLoggedIn', (authorizeRequest.keepLoggedIn ? 'true' : 'false'));
                     if (authorizeRequest.keepLoggedIn) {
@@ -345,31 +350,6 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
         }        
     };
 
-    // time based, temporary key for server communication
-    const getServerCommunicationKey = async () => {
-        try {
-            const decoded = await jwtVerify(accessToken, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
-            return decoded.payload.serverCommunicationKey as string;
-        } catch (error) {            
-            // Try to refresh the token
-            if (refreshToken) {
-                try {
-                    const refreshResult = await refresh({ refreshToken });
-                    if (refreshResult.success && refreshResult.accessToken) {
-                        // Retry with the new access token
-                        const decoded = await jwtVerify(refreshResult.accessToken, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
-                        return decoded.payload.serverCommunicationKey as string;
-                    }
-                } catch (refreshError) {
-                    console.error('Token refresh failed:', refreshError);
-                }
-            }
-            
-            // If refresh fails or no refresh token, throw the original error
-            throw error;
-        }
-    }
-
     const databaseContextValue: DatabaseContextType = {
         databaseId,
         setDatabaseId,
@@ -399,7 +379,8 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
         acl,
         setACL,
         featureFlags,
-        getServerCommunicationKey,
+        serverCommunicationKey,
+        setServerCommunicationKey,
         authorizedSessionId,
         setAuthorizedSessionId
     };
