@@ -855,7 +855,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
-        url = process.env.NEXT_PUBLIC_APP_URL + '/api/encrypted-attachment/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.masterKey as string);
+        url = '/api/encrypted-attachment/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.masterKey as string);
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
