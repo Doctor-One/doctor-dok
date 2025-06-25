@@ -13,6 +13,7 @@ import { DatabaseAuthStatus } from "@/data/client/models";
 import { Button } from "./ui/button";
 import { useDocumentVisibility } from "@/hooks/use-document-visibility";
 import Link from 'next/link'; // Add this import
+import { AuditContext } from "@/contexts/audit-context";
 const termsUrl = process.env.NEXT_PUBLIC_TERMS_URL ?? '/content/terms';
 const privacyUrl = process.env.NEXT_PUBLIC_TERMS_URL ?? '/content/privacy';
 
@@ -22,11 +23,15 @@ export default function RecordsWrapper({}) {
   const dbContext = useContext(DatabaseContext)
   const recordContext = useContext(RecordContext);
   const documentVisible = useDocumentVisibility();
+  const auditContext = useContext(AuditContext)
 
   useEffect(() => {
     if(recordContext && folderContext && folderContext.currentFolder) {
       //if (documentVisible) {
-        recordContext?.listRecords(folderContext?.currentFolder);
+        recordContext?.listRecords(folderContext?.currentFolder).then(fetchedRecords => {
+          if (dbContext && folderContext?.currentFolder) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: folderContext?.currentFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
+        });
+
       //}
     }; // eslint-disable-next-line    
   }, [folderContext?.currentFolder/*, documentVisible*/]);
