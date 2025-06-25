@@ -120,7 +120,7 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
     }
 }
 
-export async function authorizeRequestContext(request: Request, response?: NextResponse): Promise<AuthorizedRequestContext> {
+export async function authorizeRequestContext(request: NextRequest, response?: NextResponse): Promise<AuthorizedRequestContext> {
     const authorizationHeader = request.headers.get('Authorization');
     const jwtToken = authorizationHeader?.replace('Bearer ', '');
 
@@ -139,6 +139,9 @@ export async function authorizeRequestContext(request: Request, response?: NextR
 
             let masterKey = null;
             let encryptionKey = null;
+            let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : null;
+
+            
             if (request.headers.get('Encryption-Key')) {
                 const keyEncryptionTools = new EncryptionUtils(generateTimeBasedPassword()); // should be the same as the one used to encrypt the data
                 encryptionKey = await keyEncryptionTools.decrypt(request.headers.get('Encryption-Key') as string);
