@@ -1779,9 +1779,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
               const recentFinishedOperations = operationsResponse.data.filter(op => 
                 (op.operationFinished || op.operationErrored) && 
-                op.operationLastStep && 
-                new Date(op.operationLastStep) > new Date(twoMinutesAgo) &&
-                (!lastRefreshed || new Date(op.operationLastStep) > lastRefreshed)
+                op.operationLastStep
               );
               
               if (recentFinishedOperations.length > 0) {
