@@ -687,7 +687,32 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     processParseQueue();
   };
 
-  // Helper function to check for recent operations and update record status
+  // Helper function to clear finished operations from operation progress state
+  const clearFinishedOperations = (operations: any[]) => {
+    const finishedOperations = operations.filter(op => 
+      (op.operationFinished || op.operationErrored) && 
+      op.operationLastStep
+    );
+    
+    if (finishedOperations.length > 0) {
+      console.log(`Clearing ${finishedOperations.length} finished operations from progress state`);
+      
+      setOperationProgressByRecordId(prev => {
+        const updated = { ...prev };
+        finishedOperations.forEach(op => {
+          const recordId = op.recordId?.toString();
+          if (recordId && updated[recordId]) {
+            console.log('Clearing operation progress state for finished operation:', recordId, op.operationName);
+            delete updated[recordId];
+          }
+        });
+        return updated;
+      });
+    }
+    
+    return finishedOperations;
+  };
+
   const checkRecentOperations = async (records: Record[]) => {
     try {
       const operationsApi = getOperationsApiClient();
@@ -702,6 +727,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const response = await operationsApi.get({ recordIds });
 
       if ('data' in response && Array.isArray(response.data)) {
+        // First, clear any finished operations from the progress state
+        clearFinishedOperations(response.data);
+        
         const recentOperations = response.data.filter(op => 
           op.operationLastStep && 
           new Date(op.operationLastStep) > new Date(twoMinutesAgo) &&
@@ -1788,26 +1816,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress });
           
           if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
-            const recentFinishedOperations = operationsResponse.data.filter(op => 
-              (op.operationFinished || op.operationErrored) && 
-              op.operationLastStep
-            );
+            const recentFinishedOperations = clearFinishedOperations(operationsResponse.data);
             
             if (recentFinishedOperations.length > 0) {
               console.log('Found recently finished operations, refreshing records');
-              
-              // Clear operation progress state for records that have finished operations
-              setOperationProgressByRecordId(prev => {
-                const updated = { ...prev };
-                recentFinishedOperations.forEach(op => {
-                  const recordId = op.recordId?.toString();
-                  if (recordId && updated[recordId]) {
-                    console.log('Clearing operation progress state for finished operation:', recordId, op.operationName);
-                    delete updated[recordId];
-                  }
-                });
-                return updated;
-              });
               
               await listRecords(forFolder);
               return recentFinishedOperations[0].operationLastStep;
