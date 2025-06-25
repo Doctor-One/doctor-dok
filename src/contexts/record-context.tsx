@@ -8,7 +8,7 @@ import { ConfigContext, ConfigContextType } from '@/contexts/config-context';
 import { toast } from 'sonner';
 import { sort } from 'fast-sort';
 import { EncryptedAttachmentApiClient } from '@/data/client/encrypted-attachment-api-client';
-import { DatabaseContext } from './db-context';
+import { DatabaseContext, DatabaseContextType } from './db-context';
 import { ChatContext, CreateMessageEx, MessageType, MessageVisibility, OnResultCallback } from './chat-context';
 import { convertDataContentToBase64String } from "ai";
 import { convert } from '@/lib/pdf2js-browser'
@@ -210,6 +210,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [parsingDialogRecordId, setParsingDialogRecordId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const dbContextRef = useRef<DatabaseContextType | null>(null);
+  const lastListRecordsExecutionTimeRef = useRef<number>(0); // Store execution time in milliseconds
 
 
   useEffect(() => { // filter records when tags change
@@ -343,7 +345,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             }
             parseRecord(updatedRecord);
           } else {
-            console.log('Skipping parse for programmatically created record:', record.id);
+            console.debug('Skipping parse for programmatically created record:', record.id);
           }
         }
 
@@ -526,6 +528,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   const listRecords = async (forFolder: Folder) => {
+    const startTime = Date.now();
     try {
       const client = await setupApiClient(config);
       setLoaderStatus(DataLoadingStatus.Loading);
@@ -550,16 +553,28 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       // Check for recent operations and update operationInProgress status
       const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
       
-      setRecords(recordsWithOperationStatus);
+      setRecords(recordsWithOperationStatus || []);
       setLastRefreshed(new Date());
       setLoaderStatus(DataLoadingStatus.Success);
       if (dbContext) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: forFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
       
       // Auto-parse records that need parsing
-      await autoParseRecords(recordsWithOperationStatus);
+      if (recordsWithOperationStatus) {
+        await autoParseRecords(recordsWithOperationStatus);
+      }
       
-      return recordsWithOperationStatus;
+      // Calculate and store execution time
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecords execution time: ${executionTime}ms`);
+      
+      return recordsWithOperationStatus || [];
     } catch (error) {
+      // Calculate execution time even on error
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecords execution time (error): ${executionTime}ms`);
+      
       setLoaderStatus(DataLoadingStatus.Error);
       toast.error('Error listing folder records');
       return Promise.reject(error);
@@ -575,7 +590,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // If record has any of these fields, it's programmatically created (translation, etc.)
     if (hasTranslationLanguage || hasReferenceRecordIds || hasPreservedAttachments) {
-      console.log('Skipping programmatically created record:', record.id, 'translation language:', !!hasTranslationLanguage, 'reference ids:', !!hasReferenceRecordIds, 'preserved attachments:', !!hasPreservedAttachments);
+      console.debug('Skipping programmatically created record:', record.id, 'translation language:', !!hasTranslationLanguage, 'reference ids:', !!hasReferenceRecordIds, 'preserved attachments:', !!hasPreservedAttachments);
       return false;
     }
     
@@ -583,7 +598,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     const hasAttachments = record.attachments && record.attachments.length > 0;
     
     if (!hasAttachments) {
-      console.log('Skipping record without attachments:', record.id, 'attachments count:', record.attachments?.length || 0);
+      console.debug('Skipping record without attachments:', record.id, 'attachments count:', record.attachments?.length || 0);
       return false;
     }
     
@@ -603,7 +618,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     for (const record of records) {
       // Only parse user-uploaded records, not programmatically created ones
       if (!isUserUploadedRecord(record)) {
-        console.log('Skipping non-user-uploaded record for auto-parsing:', record.id);
+        console.debug('Skipping non-user-uploaded record for auto-parsing:', record.id);
         continue;
       }
       
@@ -631,7 +646,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           parseRecord(record);
         }
       } else {
-        console.log('Skipping record - already parsed:', record.id, 'json exists:', hasJson, 'checksum match:', !checksumMismatch, 'checksum:', record.checksum, 'checksumLastParsed:', record.checksumLastParsed);
+        console.debug('Skipping record - already parsed:', record.id, 'json exists:', hasJson, 'checksum match:', !checksumMismatch, 'checksum:', record.checksum, 'checksumLastParsed:', record.checksumLastParsed);
         
         // Even if record is already parsed, check if auto-translation is needed
         if (autoTranslate) {
@@ -663,7 +678,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               console.error('Error auto-translating already parsed record:', record.id, error);
             }
           } else {
-            console.log('Record already has translations, skipping auto-translate:', record.id);
+            console.debug('Record already has translations, skipping auto-translate:', record.id);
           }
         }
       }
@@ -711,9 +726,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               // Use shared helper to check operation status
               const operationCheck = {
                 hasOngoingOperation: true,
-                isDifferentSession: operation.operationLastStepSessionId && operation.operationLastStepSessionId !== dbContext?.authorizedSessionId,
+                isDifferentSession: operation.operationLastStepSessionId && operation.operationLastStepSessionId !== dbContextRef.current?.authorizedSessionId,
                 operation: operation,
-                shouldResume: (operation.operationName === RegisteredOperations.Parse || operation.operationName === RegisteredOperations.Translate) && operation.operationLastStepSessionId === dbContext?.authorizedSessionId
+                shouldResume: (operation.operationName === RegisteredOperations.Parse || operation.operationName === RegisteredOperations.Translate) && operation.operationLastStepSessionId === dbContextRef.current?.authorizedSessionId
               };
               
               if (operationCheck.isDifferentSession) {
@@ -800,22 +815,22 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   const setupApiClient = async (config: ConfigContextType | null) => {
-    const masterKey = dbContext?.masterKey;
+    const masterKey = dbContextRef.current?.masterKey;
     const encryptionConfig: ApiEncryptionConfig = {
       secretKey: masterKey,
       useEncryption: true
     };
-    const client = new RecordApiClient('', dbContext, saasContext, encryptionConfig);
+    const client = new RecordApiClient('', dbContextRef.current, saasContext, encryptionConfig);
     return client;
   }
 
   const setupAttachmentsApiClient = async (config: ConfigContextType | null) => {
-    const masterKey = dbContext?.masterKey;
+    const masterKey = dbContextRef.current?.masterKey;
     const encryptionConfig: ApiEncryptionConfig = {
       secretKey: masterKey,
       useEncryption: true
     };
-    const client = new EncryptedAttachmentApiClient('', dbContext, saasContext, encryptionConfig);
+    const client = new EncryptedAttachmentApiClient('', dbContextRef.current, saasContext, encryptionConfig);
     return client;
   }
 
@@ -855,7 +870,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
-        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.encryptionKey as string) + '&token=' + dbContext?.accessToken;
+        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContextRef.current?.serverCommunicationKey as string, dbContextRef.current?.encryptionKey as string) + '&token=' + dbContextRef.current?.accessToken;
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
@@ -878,7 +893,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
 
   const calcChecksum = async (record: Record): Promise<string> => {
     const attachmentsHash = await sha256(record.attachments.map(ea => ea.storageKey).join('-'), 'attachments')
-    const cacheKey = `record-${record.id}-${attachmentsHash}-${dbContext?.databaseHashId}`;
+    const cacheKey = `record-${record.id}-${attachmentsHash}-${dbContextRef.current?.databaseHashId}`;
 
     return cacheKey;
   }
@@ -970,9 +985,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     })
   }
 
-  // Helper to get the operations API client
+  // Helper to get the operations API client with current dbContext
   const getOperationsApiClient = () => {
-    return new OperationsApiClient('', dbContext, saasContext, { useEncryption: false });
+    return new OperationsApiClient('', dbContextRef.current, saasContext, { useEncryption: false });
   };
 
   // Shared helper to check for ongoing operations for a specific record
@@ -995,7 +1010,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       }
       
       // Check if operation is from a different session
-      if (ongoingOp.operationLastStepSessionId && ongoingOp.operationLastStepSessionId !== dbContext?.authorizedSessionId) {
+      if (ongoingOp.operationLastStepSessionId && ongoingOp.operationLastStepSessionId !== dbContextRef.current?.authorizedSessionId) {
         const timeFromLastStep = new Date().getTime() - new Date(ongoingOp.operationLastStep || '').getTime();
         if (timeFromLastStep < 2 * 60 * 1000) {
           return {
@@ -1042,10 +1057,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationRecordText: null,
       operationStartedOn: new Date().toISOString(),
       operationStartedOnUserAgent: navigator.userAgent,
-      operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+      operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationLastStep: new Date().toISOString(),
       operationLastStepUserAgent: navigator.userAgent,
-      operationLastStepSessionId: dbContext?.authorizedSessionId || null
+      operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null
     });
   };
 
@@ -1068,10 +1083,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationRecordText: null,
       operationStartedOn: new Date().toISOString(),
       operationStartedOnUserAgent: navigator.userAgent,
-      operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+      operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationLastStep: new Date().toISOString(),
       operationLastStepUserAgent: navigator.userAgent,
-      operationLastStepSessionId: dbContext?.authorizedSessionId || null,
+      operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null,
       operationFinished: !error,
       operationErrored: !!error,
       operationErrorMessage: error ? getErrorMessage(error) : null,
@@ -1102,10 +1117,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         operationRecordText: metadata?.recordText || null,
         operationStartedOn: new Date().toISOString(),
         operationStartedOnUserAgent: navigator.userAgent,
-        operationStartedOnSessionId: dbContext?.authorizedSessionId || null,
+        operationStartedOnSessionId: dbContextRef.current?.authorizedSessionId || null,
         operationLastStep: new Date().toISOString(),
         operationLastStepUserAgent: navigator.userAgent,
-        operationLastStepSessionId: dbContext?.authorizedSessionId || null,
+        operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null,
         operationFinished: finished,
         operationErrored: errored,
         operationErrorMessage: errorMessage,
@@ -1766,41 +1781,37 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         const operationsApi = getOperationsApiClient();
         const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
         
-        // Get all records that are currently in progress
-        const recordsInProgress = records.filter(record => record.operationInProgress);
+        // Get all records that are currently showing operation progress in the UI
+        const recordIdsWithProgress = Object.keys(operationProgressByRecordId).map(id => parseInt(id)).filter(id => !isNaN(id));
         
-        if (recordsInProgress.length > 0) {
-          const recordIds = recordsInProgress.map(record => record.id).filter(id => id !== undefined) as number[];
+        if (recordIdsWithProgress.length > 0) {
+          // Fetch operations for all records showing progress
+          const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress });
           
-          if (recordIds.length > 0) {
-            // Fetch operations for all records in progress
-            const operationsResponse = await operationsApi.get({ recordIds });
+          if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
+            const recentFinishedOperations = operationsResponse.data.filter(op => 
+              (op.operationFinished || op.operationErrored) && 
+              op.operationLastStep
+            );
             
-            if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
-              const recentFinishedOperations = operationsResponse.data.filter(op => 
-                (op.operationFinished || op.operationErrored) && 
-                op.operationLastStep
-              );
+            if (recentFinishedOperations.length > 0) {
+              console.log('Found recently finished operations, refreshing records');
               
-              if (recentFinishedOperations.length > 0) {
-                console.log('Found recently finished operations, refreshing records');
-                
-                // Clear operation progress state for records that have finished operations
-                setOperationProgressByRecordId(prev => {
-                  const updated = { ...prev };
-                  recentFinishedOperations.forEach(op => {
-                    const recordId = op.recordId?.toString();
-                    if (recordId && updated[recordId]) {
-                      console.log('Clearing operation progress state for finished operation:', recordId, op.operationName);
-                      delete updated[recordId];
-                    }
-                  });
-                  return updated;
+              // Clear operation progress state for records that have finished operations
+              setOperationProgressByRecordId(prev => {
+                const updated = { ...prev };
+                recentFinishedOperations.forEach(op => {
+                  const recordId = op.recordId?.toString();
+                  if (recordId && updated[recordId]) {
+                    console.log('Clearing operation progress state for finished operation:', recordId, op.operationName);
+                    delete updated[recordId];
+                  }
                 });
-                
-                await listRecords(forFolder);
-                return recentFinishedOperations[0].operationLastStep;
-              }
+                return updated;
+              });
+              
+              await listRecords(forFolder);
+              return recentFinishedOperations[0].operationLastStep;
             }
           }
         }
@@ -1810,6 +1821,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
+  // Helper function to calculate safe interval based on execution time
+  const calculateSafeInterval = (hasOperationsInProgress: boolean): number => {
+    // Calculate safe interval based on execution time
+    const minIntervalMs = Math.max(10000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 10x execution time
+    return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
+  };
+
   // Start auto-refresh interval
   const startAutoRefresh = (forFolder: Folder) => {
     // Clear existing interval
@@ -1817,10 +1835,43 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       clearInterval(refreshIntervalRef.current);
     }
     
-    // Set new interval - check every 20 seconds
+    // Check if there are any operations in progress - use ref for current value
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    
+    // Calculate safe interval based on execution time
+    const intervalMs = calculateSafeInterval(hasOperationsInProgress);
+    
+    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
+    
+    // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
+      // Check current operation status inside the callback using ref
+      //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
       await checkAndRefreshRecords(forFolder);
-    }, 20000);
+    }, intervalMs);
+  };
+
+  // Update auto-refresh interval based on operation status
+  const updateAutoRefreshInterval = (forFolder: Folder) => {
+    if (!refreshIntervalRef.current) return; // No interval running
+    
+    // Check if there are any operations in progress - use ref for current value
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    
+    // Calculate safe interval based on execution time
+    const currentIntervalMs = calculateSafeInterval(hasOperationsInProgress);
+    
+    // Clear existing interval
+    clearInterval(refreshIntervalRef.current);
+    
+    console.log(`Updating auto-refresh interval to ${currentIntervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
+    
+    // Set new interval with updated timing
+    refreshIntervalRef.current = setInterval(async () => {
+      // Check current operation status inside the callback using ref
+      //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
+      await checkAndRefreshRecords(forFolder);
+    }, currentIntervalMs);
   };
 
   // Stop auto-refresh interval
@@ -1837,6 +1888,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       stopAutoRefresh();
     };
   }, []);
+
+  // Update auto-refresh interval when operation progress changes
+  useEffect(() => {
+    if (refreshIntervalRef.current && folderContext?.currentFolder) {
+      updateAutoRefreshInterval(folderContext.currentFolder);
+    }
+  }, [operationProgressByRecordId]);
+
+
+  useEffect(() => {
+    dbContextRef.current = dbContext;
+  }, [dbContext]);
 
   return (
     <RecordContext.Provider
