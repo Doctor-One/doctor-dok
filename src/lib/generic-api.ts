@@ -10,7 +10,7 @@ import { PlatformApiClient } from "@/data/server/platform-api-client";
 import NodeCache from "node-cache";
 import { ApiError } from "@/data/client/base-api-client";
 import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
-import { generateTimeBasedPassword } from "./totp";
+import { otpManager } from "./otp-manager";
 
 const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */});
 
@@ -120,13 +120,18 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
     }
 }
 
-export async function getTemporaryPassedMasterKeyFromRequest(request: NextRequest, encryptedMasterKey: string): Promise<{masterKey: string | null, encryptionKey: string | null}> {
+export async function getTemporaryPassedMasterKeyFromRequest(request: NextRequest, encryptedMasterKey: string, keyLocatorHash: string): Promise<{masterKey: string | null, encryptionKey: string | null}> {
     let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
 
     let masterKey = null;
     let encryptionKey = null;
     if (timeBasedEncryptionKey) {
-        const otp = generateTimeBasedPassword();
+        const otp = otpManager.getOTP(keyLocatorHash);
+        if (!otp) {
+            console.log(`No OTP found for keyLocatorHash: ${keyLocatorHash}, cannot decrypt`);
+            return { masterKey: null, encryptionKey: null };
+        }
+        
         console.log('OTP: ', otp);
         const keyEncryptionTools = new EncryptionUtils(otp); // should be the same as the one used to encrypt the data
         encryptionKey = await keyEncryptionTools.decrypt(timeBasedEncryptionKey);
@@ -161,8 +166,11 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
             NextResponse.json({ message: 'Unauthorized', status: 401 });
             throw new Error('Unauthorized. Wrong Key.');
         } else {
+            // Generate and store OTP for this user session
+            const keyLocatorHash = decoded.payload.keyLocatorHash as string;
+            otpManager.generateAndStoreOTP(keyLocatorHash);
 
-            const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey);
+            const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey, keyLocatorHash);
 
             const keyACL = (authResult as KeyDTO).acl ?? null;
             const aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL

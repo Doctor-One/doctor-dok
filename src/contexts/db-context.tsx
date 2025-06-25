@@ -7,7 +7,6 @@ import { EncryptionUtils, generateEncryptionKey, sha256 } from '@/lib/crypto';
 import { toast } from 'sonner';
 import { ZodIssue } from 'zod';
 import { SaaSContext } from './saas-context';
-import { generateTimeBasedPassword } from '@/lib/totp';
 import { jwtVerify } from 'jose';
 import { nanoid } from 'nanoid';
 const argon2 = require("argon2-browser");

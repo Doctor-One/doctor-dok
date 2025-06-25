@@ -5,6 +5,7 @@ import { generateTimeBasedPassword } from "@/lib/totp";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
 import {SignJWT, jwtVerify, type JWTPayload} from 'jose'
 import { NextRequest } from "next/server";
+import { otpManager } from "@/lib/otp-manager";
 
 // clear all the database
 export async function POST(request: NextRequest) {
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
                         accessToken:  accessToken,
                         refreshToken: refreshToken,
                         acl: keyACL ? JSON.parse(keyACL) : defaultKeyACL,
-                        serverCommunicationKey: generateTimeBasedPassword(),
+                        serverCommunicationKey: otpManager.generateAndStoreOTP(authRequest.keyLocatorHash),
                         saasContext: saasContext ? saasContext.saasContex : null
                     },
                     status: 200
