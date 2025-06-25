@@ -139,7 +139,7 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
 
             let masterKey = null;
             let encryptionKey = null;
-            let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : null;
+            let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
 
             
             if (request.headers.get('Encryption-Key')) {

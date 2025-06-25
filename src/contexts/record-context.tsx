@@ -2,7 +2,7 @@ import '@enhances/with-resolvers';
 import React, { createContext, useState, useEffect, useContext, PropsWithChildren, useRef } from 'react';
 import { EncryptedAttachmentDTO, EncryptedAttachmentDTOEncSettings, RecordDTO } from '@/data/dto';
 import { RecordApiClient } from '@/data/client/record-api-client';
-import { ApiEncryptionConfig } from '@/data/client/base-api-client';
+import { ApiEncryptionConfig, encryptKeyForServer } from '@/data/client/base-api-client';
 import { DataLoadingStatus, DisplayableDataObject, EncryptedAttachment, Folder, Record, PostParseCallback, RegisteredOperations, AVERAGE_PAGE_TOKENS } from '@/data/client/models';
 import { ConfigContext, ConfigContextType } from '@/contexts/config-context';
 import { toast } from 'sonner';
@@ -855,7 +855,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
-        url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache, true) as string;
+        url = process.env.NEXT_PUBLIC_APP_URL + '/api/encrypted-attachment/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContext?.serverCommunicationKey as string, dbContext?.masterKey as string);
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
