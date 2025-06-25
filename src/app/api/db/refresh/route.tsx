@@ -3,9 +3,10 @@ import { authorizeKey } from "@/data/server/server-key-helpers";
 import { generateTimeBasedPassword } from "@/lib/totp";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
 import {SignJWT, jwtVerify, type JWTPayload} from 'jose'
+import { NextRequest } from "next/server";
 
 // clear all the database
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     try {
         const jsonRequest = await request.json();
         const validationResult = databaseRefreshRequestSchema.safeParse(jsonRequest); // validation

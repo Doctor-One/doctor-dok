@@ -214,7 +214,7 @@ export async function genericGET<T extends { [key:string]: any }>(request: NextR
 }
 
 
-export async function genericDELETE<T extends { [key:string]: any }>(request: Request, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult>{
+export async function genericDELETE<T extends { [key:string]: any }>(request: NextRequest, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult>{
     try {
         if(await repo.delete(query)) {
             return {
