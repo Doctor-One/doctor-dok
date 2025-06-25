@@ -22,6 +22,14 @@ export class ApiError extends Error {
   }
 }
 
+// Helper function to encrypt the key for server communication
+export async function encryptKeyForServer(
+  serverCommunicationKey: string,
+  keyToEncrypt: string
+): Promise<string> {
+  const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
+  return await keyEncryptionTools.encrypt(keyToEncrypt);
+}
 
 export class ApiClient {
   private baseUrl: string;
@@ -61,8 +69,7 @@ export class ApiClient {
 
     const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
     if(serverCommunicationKey && passTemporaryServerEncryptionKey) {
-      const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
-      headers['Encryption-Key'] = await keyEncryptionTools.encrypt(this.dbContext?.masterKey as string);
+      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.masterKey as string);
     }
 
     if(this.dbContext?.databaseHashId) {
@@ -136,8 +143,7 @@ export class ApiClient {
 
     const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
     if(serverCommunicationKey && encryptionSettings?.passTemporaryServerEncryptionKey) {
-      const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
-      headers['Encryption-Key'] = await keyEncryptionTools.encrypt(this.dbContext?.encryptionKey as string);
+      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.encryptionKey as string);
     }
 
     if(this.saasToken) {
@@ -206,10 +212,10 @@ export class ApiClient {
 
       if (this.encryptionFilter) {
         if (responseData instanceof Array) {
-          const decryptedData = await Promise.all(responseData.map(async (data) => await this.encryptionFilter.decrypt(data, encryptionSettings)));
+          const decryptedData = await Promise.all(responseData.map(async (data) => await this.encryptionFilter!.decrypt(data, encryptionSettings)));
           return decryptedData as T[];
         } else {
-          const decryptedData = await this.encryptionFilter.decrypt(responseData, encryptionSettings);
+          const decryptedData = await this.encryptionFilter!.decrypt(responseData, encryptionSettings);
           return decryptedData as T;
         }
       } else {
@@ -217,7 +223,9 @@ export class ApiClient {
       }
     } catch (error) {
       console.log(error);
-      throw new ApiError('Request failed' + getErrorMessage(error) + ' [' + error.code + ']', error.code, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = error instanceof Error && 'code' in error ? (error as any).code : 'UNKNOWN';
+      throw new ApiError('Request failed' + getErrorMessage(error) + ' [' + errorCode + ']', errorCode, error);
     }
   }
 }
