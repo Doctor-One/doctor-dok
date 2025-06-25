@@ -10,6 +10,7 @@ import { PlatformApiClient } from "@/data/server/platform-api-client";
 import NodeCache from "node-cache";
 import { ApiError } from "@/data/client/base-api-client";
 import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
+import { generateTimeBasedPassword } from "./totp";
 
 const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */});
 
@@ -139,8 +140,9 @@ export async function authorizeRequestContext(request: Request, response?: NextR
             let masterKey = null;
             let encryptionKey = null;
             if (request.headers.get('Encryption-Key')) {
-                const keyEncryptionTools = new EncryptionUtils(decoded.payload.serverCommunicationKey as string);
+                const keyEncryptionTools = new EncryptionUtils(generateTimeBasedPassword()); // should be the same as the one used to encrypt the data
                 encryptionKey = await keyEncryptionTools.decrypt(request.headers.get('Encryption-Key') as string);
+                console.log('Encryption Key: ', encryptionKey);
 
                 const masterKeyEncryptionTools = new EncryptionUtils(encryptionKey);
                 masterKey = await masterKeyEncryptionTools.decrypt((authResult as KeyDTO).encryptedMasterKey);

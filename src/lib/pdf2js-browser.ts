@@ -40,7 +40,7 @@ export async function convert(
   }
 
   // On iOS, use server-side conversion
-  if (isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
+  if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
     console.log('PDF processing server-side');
     let pdfBase64: string;
     

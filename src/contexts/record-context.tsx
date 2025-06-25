@@ -853,7 +853,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const downloadAttachment = async (attachment: EncryptedAttachmentDTO, useCache = true) => {
     try {
       let url = '';
-      if (isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE)) {
+      if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
         console.log('Downloading attachment with server-side decryption');
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache, true) as string;
       } else {
@@ -893,7 +893,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         if (ea.mimeType === 'application/pdf') {
 
           let imagesArray: string[] = [];
-          if ((isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE)) {
+          if (((isIOS() && (process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE)) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE)) {
             console.log('Converting PDF to images server-side');
             const apiClient = new PdfConversionApiClient('', dbContext, saasContext);
             const result = await apiClient.convertPdf({
