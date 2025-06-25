@@ -210,6 +210,21 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [parsingDialogRecordId, setParsingDialogRecordId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const operationProgressByRecordIdRef = useRef<{
+    [recordId: string]: {
+      operationName: string;
+      page: number;
+      pages: number;
+      progress: number;
+      progressOf: number;
+      message?: string;
+      metadata: any;
+      textDelta: string;
+      pageDelta: string;
+      recordText?: string;
+      history: { operationName: string; progress: number; progressOf: number; page: number; pages: number; message?: string; metadata: any; textDelta: string; pageDelta: string; recordText?: string; timestamp: number }[];
+    }
+  }>({});
 
 
   useEffect(() => { // filter records when tags change
@@ -1813,15 +1828,17 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       clearInterval(refreshIntervalRef.current);
     }
     
-    // Check if there are any operations in progress
-    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    // Check if there are any operations in progress - use ref for current value
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordIdRef.current).length > 0;
     const intervalMs = hasOperationsInProgress ? 5000 : 20000; // 5s if operations in progress, 20s otherwise
     
     console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress})`);
     
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
-      await checkAndRefreshRecords(forFolder, hasOperationsInProgress);
+      // Check current operation status inside the callback using ref
+      const currentHasOperations = Object.keys(operationProgressByRecordIdRef.current).length > 0;
+      await checkAndRefreshRecords(forFolder, currentHasOperations);
     }, intervalMs);
   };
 
@@ -1829,8 +1846,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const updateAutoRefreshInterval = (forFolder: Folder) => {
     if (!refreshIntervalRef.current) return; // No interval running
     
-    // Check if there are any operations in progress
-    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    // Check if there are any operations in progress - use ref for current value
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordIdRef.current).length > 0;
     const currentIntervalMs = hasOperationsInProgress ? 5000 : 20000;
     
     // Clear existing interval
@@ -1840,7 +1857,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Set new interval with updated timing
     refreshIntervalRef.current = setInterval(async () => {
-      await checkAndRefreshRecords(forFolder, hasOperationsInProgress);
+      // Check current operation status inside the callback using ref
+      const currentHasOperations = Object.keys(operationProgressByRecordIdRef.current).length > 0;
+      await checkAndRefreshRecords(forFolder, currentHasOperations);
     }, currentIntervalMs);
   };
 
@@ -1864,6 +1883,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     if (refreshIntervalRef.current && folderContext?.currentFolder) {
       updateAutoRefreshInterval(folderContext.currentFolder);
     }
+  }, [operationProgressByRecordId]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    operationProgressByRecordIdRef.current = operationProgressByRecordId;
   }, [operationProgressByRecordId]);
 
   return (
