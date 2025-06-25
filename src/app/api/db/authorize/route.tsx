@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
             } else {
 
                 const alg = 'HS256'
-                const tokenPayload = { databaseIdHash: authRequest.databaseIdHash, keyHash: authRequest.keyHash, keyLocatorHash: authRequest.keyLocatorHash, serverCommunicationKey: generateTimeBasedPassword() }
+                const tokenPayload = { databaseIdHash: authRequest.databaseIdHash, keyHash: authRequest.keyHash, keyLocatorHash: authRequest.keyLocatorHash }
                 const accessToken = await new SignJWT(tokenPayload)
                 .setProtectedHeader({ alg })
                 .setIssuedAt()
@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
                         accessToken:  accessToken,
                         refreshToken: refreshToken,
                         acl: keyACL ? JSON.parse(keyACL) : defaultKeyACL,
+                        serverCommunicationKey: generateTimeBasedPassword(),
                         saasContext: saasContext ? saasContext.saasContex : null
                     },
                     status: 200

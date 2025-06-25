@@ -50,6 +50,7 @@ export async function POST(request: Request) {
                     data: {
                         accessToken:  accessToken,
                         refreshToken: refreshToken,
+                        serverCommunicationKey: generateTimeBasedPassword()
                     },
                     status: 200
                 });                    

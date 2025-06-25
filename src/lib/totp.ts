@@ -10,7 +10,7 @@ const SECRET = process.env.TOTP_SECRET ??
                randomBytes(20).toString('base64' as BufferEncoding);
 
 /**
- * Configure a 10-minute window (600 s) and an 8-digit code.
+ * Configure a 20-minute window (600 s) and an 8-digit code.
  * SHA-256 is a good default hash these days.
  */
 totp.options = {

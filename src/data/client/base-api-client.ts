@@ -59,7 +59,7 @@ export class ApiClient {
       headers['Authorization'] = `Bearer ${repeatedRequestAccessToken ? repeatedRequestAccessToken : this.dbContext?.accessToken}`;
     }
 
-    const serverCommunicationKey = await this.dbContext?.getServerCommunicationKey();
+    const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
     if(serverCommunicationKey && passTemporaryServerEncryptionKey) {
       const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
       headers['Encryption-Key'] = await keyEncryptionTools.encrypt(this.dbContext?.masterKey as string);
@@ -134,7 +134,7 @@ export class ApiClient {
       headers['Database-Id-Hash'] = this.dbContext?.databaseHashId;
     }
 
-    const serverCommunicationKey = await this.dbContext?.getServerCommunicationKey();
+    const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
     if(serverCommunicationKey && encryptionSettings?.passTemporaryServerEncryptionKey) {
       const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
       headers['Encryption-Key'] = await keyEncryptionTools.encrypt(this.dbContext?.encryptionKey as string);

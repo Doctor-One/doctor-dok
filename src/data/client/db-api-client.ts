@@ -25,7 +25,8 @@ export type AuthorizeDbResponse = {
     accessToken: string;
     refreshToken: string;
     acl: KeyACLDTO | null;
-    saasContext?: SaaSDTO | null
+    saasContext?: SaaSDTO | null;
+    serverCommunicationKey: string;
   }
   status: number;
   issues?: any[];
@@ -36,6 +37,7 @@ export type RefreshDbResponse = {
   data: {
     accessToken: string;
     refreshToken: string;
+    serverCommunicationKey: string;
   }
   status: number;
   issues?: any[];
