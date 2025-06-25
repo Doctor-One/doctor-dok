@@ -69,7 +69,7 @@ export class ApiClient {
 
     const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
     if(serverCommunicationKey && passTemporaryServerEncryptionKey) {
-      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.masterKey as string);
+      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.encryptionKey as string);
     }
 
     if(this.dbContext?.databaseHashId) {
