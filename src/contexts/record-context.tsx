@@ -1813,10 +1813,35 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       clearInterval(refreshIntervalRef.current);
     }
     
-    // Set new interval - check every 20 seconds
+    // Check if there are any operations in progress
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    const intervalMs = hasOperationsInProgress ? 5000 : 20000; // 5s if operations in progress, 20s otherwise
+    
+    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress})`);
+    
+    // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
-      await checkAndRefreshRecords(forFolder);
-    }, 20000);
+      await checkAndRefreshRecords(forFolder, hasOperationsInProgress);
+    }, intervalMs);
+  };
+
+  // Update auto-refresh interval based on operation status
+  const updateAutoRefreshInterval = (forFolder: Folder) => {
+    if (!refreshIntervalRef.current) return; // No interval running
+    
+    // Check if there are any operations in progress
+    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
+    const currentIntervalMs = hasOperationsInProgress ? 5000 : 20000;
+    
+    // Clear existing interval
+    clearInterval(refreshIntervalRef.current);
+    
+    console.log(`Updating auto-refresh interval to ${currentIntervalMs}ms (operations in progress: ${hasOperationsInProgress})`);
+    
+    // Set new interval with updated timing
+    refreshIntervalRef.current = setInterval(async () => {
+      await checkAndRefreshRecords(forFolder, hasOperationsInProgress);
+    }, currentIntervalMs);
   };
 
   // Stop auto-refresh interval
@@ -1833,6 +1858,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       stopAutoRefresh();
     };
   }, []);
+
+  // Update auto-refresh interval when operation progress changes
+  useEffect(() => {
+    if (refreshIntervalRef.current && folderContext?.currentFolder) {
+      updateAutoRefreshInterval(folderContext.currentFolder);
+    }
+  }, [operationProgressByRecordId]);
 
   return (
     <RecordContext.Provider
