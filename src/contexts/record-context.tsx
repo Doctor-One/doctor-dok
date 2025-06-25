@@ -556,7 +556,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       setRecords(recordsWithOperationStatus || []);
       setLastRefreshed(new Date());
       setLoaderStatus(DataLoadingStatus.Success);
-      if (dbContext) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: forFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
       
       // Auto-parse records that need parsing
       if (recordsWithOperationStatus) {
