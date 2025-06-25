@@ -98,7 +98,23 @@ export function ChangeKeyForm({
           <Button variant="outline" className="p-1 h-10 p-2" onClick={async (e) => {
             e.preventDefault();
             const keyPrinterPdf = pdf(KeyPrint({ key: dbContext?.encryptionKey ?? '', databaseId: dbContext?.databaseId ?? '' }));
-            window.open(URL.createObjectURL(await keyPrinterPdf.toBlob()));
+            const blob = await keyPrinterPdf.toBlob();
+            const url = URL.createObjectURL(blob);
+            
+            // Create a temporary anchor element and click it (works better on iOS Safari)
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'database-key.pdf';
+            link.target = '_blank';
+            link.style.display = 'none';
+            
+            // Add to DOM, click, and remove
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up the blob URL
+            setTimeout(() => URL.revokeObjectURL(url), 100);
           }}><PrinterIcon className="w-4 h-4" /> Print</Button>
           <Button variant="outline" className="p-1 h-10 p-2" onClick={async (e) => {
             e.preventDefault();
@@ -204,7 +220,23 @@ export function ChangeKeyForm({
                 <Button variant="outline" className="p-1 h-10 w-10" onClick={async (e) => {
                   e.preventDefault();
                   const keyPrinterPdf = pdf(KeyPrint({ key: getValues().key, databaseId: dbContext?.databaseId ?? '' }));
-                  window.open(URL.createObjectURL(await keyPrinterPdf.toBlob()));
+                  const blob = await keyPrinterPdf.toBlob();
+                  const url = URL.createObjectURL(blob);
+                  
+                  // Create a temporary anchor element and click it (works better on iOS Safari)
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = 'database-key.pdf';
+                  link.target = '_blank';
+                  link.style.display = 'none';
+                  
+                  // Add to DOM, click, and remove
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  
+                  // Clean up the blob URL
+                  setTimeout(() => URL.revokeObjectURL(url), 100);
                 }}><PrinterIcon className="w-4 h-4" /></Button>
                 <Button variant="outline" className="p-1 h-10 w-10" onClick={async (e) => {
                   e.preventDefault();
