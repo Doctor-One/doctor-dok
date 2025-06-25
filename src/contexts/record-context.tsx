@@ -211,6 +211,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const dbContextRef = useRef<DatabaseContextType | null>(null);
+  const lastListRecordsExecutionTimeRef = useRef<number>(0); // Store execution time in milliseconds
 
 
   useEffect(() => { // filter records when tags change
@@ -344,7 +345,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             }
             parseRecord(updatedRecord);
           } else {
-            console.log('Skipping parse for programmatically created record:', record.id);
+            console.debug('Skipping parse for programmatically created record:', record.id);
           }
         }
 
@@ -527,6 +528,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   const listRecords = async (forFolder: Folder) => {
+    const startTime = Date.now();
     try {
       const client = await setupApiClient(config);
       setLoaderStatus(DataLoadingStatus.Loading);
@@ -551,16 +553,28 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       // Check for recent operations and update operationInProgress status
       const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
       
-      setRecords(recordsWithOperationStatus);
+      setRecords(recordsWithOperationStatus || []);
       setLastRefreshed(new Date());
       setLoaderStatus(DataLoadingStatus.Success);
       if (dbContext) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: forFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
       
       // Auto-parse records that need parsing
-      await autoParseRecords(recordsWithOperationStatus);
+      if (recordsWithOperationStatus) {
+        await autoParseRecords(recordsWithOperationStatus);
+      }
       
-      return recordsWithOperationStatus;
+      // Calculate and store execution time
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecords execution time: ${executionTime}ms`);
+      
+      return recordsWithOperationStatus || [];
     } catch (error) {
+      // Calculate execution time even on error
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecords execution time (error): ${executionTime}ms`);
+      
       setLoaderStatus(DataLoadingStatus.Error);
       toast.error('Error listing folder records');
       return Promise.reject(error);
@@ -576,7 +590,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // If record has any of these fields, it's programmatically created (translation, etc.)
     if (hasTranslationLanguage || hasReferenceRecordIds || hasPreservedAttachments) {
-      console.log('Skipping programmatically created record:', record.id, 'translation language:', !!hasTranslationLanguage, 'reference ids:', !!hasReferenceRecordIds, 'preserved attachments:', !!hasPreservedAttachments);
+      console.debug('Skipping programmatically created record:', record.id, 'translation language:', !!hasTranslationLanguage, 'reference ids:', !!hasReferenceRecordIds, 'preserved attachments:', !!hasPreservedAttachments);
       return false;
     }
     
@@ -584,7 +598,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     const hasAttachments = record.attachments && record.attachments.length > 0;
     
     if (!hasAttachments) {
-      console.log('Skipping record without attachments:', record.id, 'attachments count:', record.attachments?.length || 0);
+      console.debug('Skipping record without attachments:', record.id, 'attachments count:', record.attachments?.length || 0);
       return false;
     }
     
@@ -604,7 +618,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     for (const record of records) {
       // Only parse user-uploaded records, not programmatically created ones
       if (!isUserUploadedRecord(record)) {
-        console.log('Skipping non-user-uploaded record for auto-parsing:', record.id);
+        console.debug('Skipping non-user-uploaded record for auto-parsing:', record.id);
         continue;
       }
       
@@ -632,7 +646,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           parseRecord(record);
         }
       } else {
-        console.log('Skipping record - already parsed:', record.id, 'json exists:', hasJson, 'checksum match:', !checksumMismatch, 'checksum:', record.checksum, 'checksumLastParsed:', record.checksumLastParsed);
+        console.debug('Skipping record - already parsed:', record.id, 'json exists:', hasJson, 'checksum match:', !checksumMismatch, 'checksum:', record.checksum, 'checksumLastParsed:', record.checksumLastParsed);
         
         // Even if record is already parsed, check if auto-translation is needed
         if (autoTranslate) {
@@ -664,7 +678,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               console.error('Error auto-translating already parsed record:', record.id, error);
             }
           } else {
-            console.log('Record already has translations, skipping auto-translate:', record.id);
+            console.debug('Record already has translations, skipping auto-translate:', record.id);
           }
         }
       }
@@ -1807,6 +1821,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
+  // Helper function to calculate safe interval based on execution time
+  const calculateSafeInterval = (hasOperationsInProgress: boolean): number => {
+    // Calculate safe interval based on execution time
+    const minIntervalMs = Math.max(10000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 10x execution time
+    return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
+  };
+
   // Start auto-refresh interval
   const startAutoRefresh = (forFolder: Folder) => {
     // Clear existing interval
@@ -1816,9 +1837,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Check if there are any operations in progress - use ref for current value
     const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
-    const intervalMs = hasOperationsInProgress ? 5000 : 20000; // 5s if operations in progress, 20s otherwise
     
-    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress})`);
+    // Calculate safe interval based on execution time
+    const intervalMs = calculateSafeInterval(hasOperationsInProgress);
+    
+    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
     
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
@@ -1834,12 +1857,14 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Check if there are any operations in progress - use ref for current value
     const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
-    const currentIntervalMs = hasOperationsInProgress ? 5000 : 20000;
+    
+    // Calculate safe interval based on execution time
+    const currentIntervalMs = calculateSafeInterval(hasOperationsInProgress);
     
     // Clear existing interval
     clearInterval(refreshIntervalRef.current);
     
-    console.log(`Updating auto-refresh interval to ${currentIntervalMs}ms (operations in progress: ${hasOperationsInProgress})`);
+    console.log(`Updating auto-refresh interval to ${currentIntervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
     
     // Set new interval with updated timing
     refreshIntervalRef.current = setInterval(async () => {
