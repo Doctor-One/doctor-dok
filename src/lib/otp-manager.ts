@@ -40,7 +40,6 @@ class OTPManager {
     if (this.useTimeBasedPasswords) {
       // In time-based mode, just generate and return without storing
       const otp = generateTimeBasedPassword();
-      console.log(`Generated time-based OTP for keyLocatorHash: ${keyLocatorHash}`, otp);
       return otp;
     } else {
       // In storage mode, generate and store
@@ -52,7 +51,6 @@ class OTPManager {
       };
 
       this.otpStore.set(keyLocatorHash, entry);
-      console.log(`Generated and stored OTP for keyLocatorHash: ${keyLocatorHash}`);
       
       return otp;
     }
@@ -66,26 +64,22 @@ class OTPManager {
     if (this.useTimeBasedPasswords) {
       // In time-based mode, generate fresh OTP
       const otp = generateTimeBasedPassword();
-      console.log(`Generated fresh time-based OTP for keyLocatorHash: ${keyLocatorHash}`, otp);
       return otp;
     } else {
       // In storage mode, retrieve from store
       const entry = this.otpStore.get(keyLocatorHash);
       
       if (!entry) {
-        console.log(`No OTP found for keyLocatorHash: ${keyLocatorHash}`);
         return null;
       }
 
       // Check if entry is expired
       const age = Date.now() - entry.timestamp;
       if (age > this.MAX_AGE) {
-        console.log(`OTP expired for keyLocatorHash: ${keyLocatorHash}, age: ${age}ms`);
         this.otpStore.delete(keyLocatorHash);
         return null;
       }
 
-      console.log(`Retrieved OTP for keyLocatorHash: ${keyLocatorHash}`);
       return entry.otp;
     }
   }
@@ -104,14 +98,10 @@ class OTPManager {
   removeOTP(keyLocatorHash: string): boolean {
     if (this.useTimeBasedPasswords) {
       // In time-based mode, nothing to remove
-      console.log(`No OTP to remove for keyLocatorHash: ${keyLocatorHash} (time-based mode)`);
       return false;
     } else {
       // In storage mode, remove from store
       const deleted = this.otpStore.delete(keyLocatorHash);
-      if (deleted) {
-        console.log(`Removed OTP for keyLocatorHash: ${keyLocatorHash}`);
-      }
       return deleted;
     }
   }
@@ -155,9 +145,6 @@ class OTPManager {
       }
     }
 
-    if (cleanedCount > 0) {
-      console.log(`Cleaned up ${cleanedCount} expired OTP entries`);
-    }
   }
 
   /**
@@ -196,13 +183,11 @@ class OTPManager {
    */
   clearAll(): void {
     if (this.useTimeBasedPasswords) {
-      console.log('No OTPs to clear (time-based mode)');
       return;
     }
 
     const count = this.otpStore.size;
     this.otpStore.clear();
-    console.log(`Cleared all ${count} OTP entries`);
   }
 
   /**

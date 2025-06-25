@@ -11,14 +11,35 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const requestContext = await authorizeRequestContext(request);
     const storageService = new StorageService(requestContext.databaseIdHash);
+    const attachmentRepository = new ServerEncryptedAttachmentRepository(requestContext.databaseIdHash);
+
+    // Fetch attachment metadata to get filename and mime type
+    const attachment = await attachmentRepository.findOne({ storageKey: (params.id) });
+    
+    if (!attachment) {
+        return new Response('Attachment not found', { status: 404 });
+    }
 
     const headers = new Headers();
-    headers.append('Content-Type', 'application/octet-stream');
-    let fileContent = await storageService.readAttachment(params.id) // TODO: add streaming
+    
+    // Set proper content type
+    if (attachment.mimeType) {
+        headers.append('Content-Type', attachment.mimeType);
+    } else {
+        headers.append('Content-Type', 'application/octet-stream');
+    }
+    
+    
+    let fileContent = await storageService.readAttachment(attachment.storageKey) // TODO: add streaming
 
     if(requestContext.masterKey) { // decrypt file if master key is available
         const keyEncryptionTools = new EncryptionUtils(requestContext.masterKey);
         fileContent = await keyEncryptionTools.decryptArrayBuffer(fileContent);
+
+        // Set content disposition with filename
+        const filename = await keyEncryptionTools.decrypt(attachment.displayName) || `attachment-${params.id}`;
+        headers.append('Content-Disposition', `attachment; filename="${filename}"`);
+
     }
 
     return new Response(fileContent, { headers });
