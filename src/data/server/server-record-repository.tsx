@@ -63,8 +63,6 @@ export default class ServerRecordRepository extends BaseRepository<RecordDTO> {
                 dbQuery.where(and(...andConditions, or(...orConditions)));
             }
         }
-
-        console.log('dbQuery', dbQuery.toSQL());
         
         return Promise.resolve(dbQuery.all() as RecordDTO[])
     }
