@@ -3,7 +3,7 @@ import { RecordDTO } from "../dto";
 import { pool } from '@/data/server/db-provider'
 import { getCurrentTS } from "@/lib/utils";
 import { records } from "./db-schema";
-import { eq, sql, isNotNull, and } from "drizzle-orm";
+import { eq, sql, isNotNull, and, inArray, gt } from "drizzle-orm";
 import { create } from "./generic-repository";
 import { desc, asc } from 'drizzle-orm';
 import { operations } from "./db-schema-operations";
@@ -39,11 +39,27 @@ export default class ServerRecordRepository extends BaseRepository<RecordDTO> {
     async findAll(query?: IQuery): Promise<RecordDTO[]> {
         const db = (await this.db());
         let dbQuery = db.select().from(records);
+        
         if(query?.filter){
+            const conditions = [];
+            
             if(query.filter['folderId']){
-                dbQuery.where(eq(records.folderId, parseInt(query.filter['folderId'] as string)));
+                conditions.push(eq(records.folderId, parseInt(query.filter['folderId'] as string)));
+            }
+            
+            if(query.filter['recordIds'] && Array.isArray(query.filter['recordIds'])){
+                conditions.push(inArray(records.id, query.filter['recordIds'] as number[]));
+            }
+            
+            if(query.filter['newerThan']){
+                conditions.push(gt(records.updatedAt, query.filter['newerThan'] as string));
+            }
+            
+            if(conditions.length > 0){
+                dbQuery = dbQuery.where(and(...conditions));
             }
         }
+        
         return Promise.resolve(dbQuery.all() as RecordDTO[])
     }
 

@@ -30,11 +30,23 @@ export default function RecordsWrapper({}) {
       //if (documentVisible) {
         recordContext?.listRecords(folderContext?.currentFolder).then(fetchedRecords => {
           if (dbContext && folderContext?.currentFolder) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: folderContext?.currentFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
+          
+          // Start auto-refresh after initial load
+          if (folderContext?.currentFolder) {
+            recordContext?.startAutoRefresh(folderContext.currentFolder);
+          }
         });
 
       //}
     }; // eslint-disable-next-line    
   }, [folderContext?.currentFolder/*, documentVisible*/]);
+
+  // Cleanup auto-refresh when component unmounts or folder changes
+  useEffect(() => {
+    return () => {
+      recordContext?.stopAutoRefresh();
+    };
+  }, [recordContext, folderContext?.currentFolder]);
     
   return (
     <div className="grid grow w-full bg-zinc-100 dark:bg-zinc-950">

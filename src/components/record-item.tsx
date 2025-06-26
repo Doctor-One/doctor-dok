@@ -233,7 +233,17 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsVisible(entry.isIntersecting);
+        const isVisible = entry.isIntersecting;
+        setIsVisible(isVisible);
+        
+        // Track visible records in the context
+        if (record.id && typeof record.id === 'number') {
+          if (isVisible) {
+            recordContext?.addVisibleRecordId(record.id);
+          } else {
+            recordContext?.removeVisibleRecordId(record.id);
+          }
+        }
       },
       {
         root: null, // viewport
@@ -250,8 +260,13 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
       if (thisElementRef.current) {
         observer.unobserve(thisElementRef.current);
       }
+      
+      // Clean up visible record tracking when component unmounts
+      if (record.id && typeof record.id === 'number') {
+        recordContext?.removeVisibleRecordId(record.id);
+      }
     };
-  }, [])
+  }, [record.id, recordContext])
 
   const downloadAsHtml = (text: string | undefined, filename: string) => {
     if (!text) return;
