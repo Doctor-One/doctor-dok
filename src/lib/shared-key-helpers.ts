@@ -19,7 +19,7 @@ export async function temporaryServerEncryptionKey(
   
     try {
       const sharedKey = generateEncryptionKey();
-      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: 'guest', features: ['*'] }, dbContext, saasContext) as PutKeyResponseSuccess;
+      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: 'temp', features: ['*'] }, dbContext, saasContext) as PutKeyResponseSuccess;
   
       const keyEncryptionTools = new EncryptionUtils(dbContext.serverCommunicationKey);
       const encryptedKey = await keyEncryptionTools.encrypt(sharedKey);

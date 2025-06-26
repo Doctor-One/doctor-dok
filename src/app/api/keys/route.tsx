@@ -9,7 +9,7 @@ export async function PUT(request: NextRequest, response: NextResponse) {
     try {
         const newKeyDataACL = newKeyDataDTO.acl ? JSON.parse(newKeyDataDTO.acl) as KeyACLDTO : null;
         const requestContext = await authorizeRequestContext(request, response);
-        if (requestContext.acl.role !== 'owner' && (newKeyDataACL?.role !== 'guest' && !newKeyDataDTO.expiryDate)) { // if the key is not a guest key and has no expiry date, it is not allowed to be created
+        if (requestContext.acl.role !== 'owner' && (newKeyDataACL?.role !== 'temp' || !newKeyDataDTO.expiryDate)) { // if the key is not a temporary key and has no expiry date, it is not allowed to be created
             return Response.json({ message: "Owner role is required", status: 401 }, {status: 401});
         }
 
