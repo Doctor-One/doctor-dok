@@ -532,16 +532,16 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
-  const listRecords = async (forFolder: Folder) => {
-    const startTime = Date.now();
-    try {
-      const client = await setupApiClient(config);
-      setLoaderStatus(DataLoadingStatus.Loading);
-      const response = await client.get(forFolder.toDTO());
-      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
-
+  // Shared helper function for processing fetched records
+  const processFetchedRecords = async (
+    fetchedRecords: Record[], 
+    updateAvailableTags: boolean = false,
+    executionTime: number
+  ) => {
+    // Only update available tags if requested (for full refresh)
+    if (updateAvailableTags) {
       const fetchedTags = fetchedRecords.reduce((tags: FilterTag[], record: Record) => {
-        const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : []; //.filter(tag => !tags.some(t => t.tag === tag)) : [];
+        const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : [];
         uniqueTags.forEach(tag => {
           const existingTag = tags.find(t => t.tag === tag);
           if (existingTag) {
@@ -554,25 +554,50 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       }, []);
 
       setFilterAvailableTags(fetchedTags);
-      
-      // Check for recent operations and update operationInProgress status
-      const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
-      
-      setRecords(recordsWithOperationStatus || []);
-      setLastRefreshed(new Date());
-      setLoaderStatus(DataLoadingStatus.Success);
-      
-      // Auto-parse records that need parsing
-      if (recordsWithOperationStatus) {
-        await autoParseRecords(recordsWithOperationStatus);
-      }
-      
-      // Calculate and store execution time
+    }
+    
+    // Check for recent operations and update operationInProgress status
+    const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
+    
+    // Update records in state
+    setRecords(prevRecords => {
+      const updatedRecords = [...prevRecords];
+      recordsWithOperationStatus?.forEach(fetchedRecord => {
+        const existingIndex = updatedRecords.findIndex(r => r.id === fetchedRecord.id);
+        if (existingIndex >= 0) {
+          updatedRecords[existingIndex] = fetchedRecord;
+        } else {
+          updatedRecords.push(fetchedRecord);
+        }
+      });
+      return updatedRecords;
+    });
+    
+    setLastRefreshed(new Date());
+    setLoaderStatus(DataLoadingStatus.Success);
+    
+    // Auto-parse records that need parsing
+    if (recordsWithOperationStatus) {
+      await autoParseRecords(recordsWithOperationStatus);
+    }
+    
+    // Calculate and store execution time
+    lastListRecordsExecutionTimeRef.current = executionTime;
+    console.log(`Records processing execution time: ${executionTime}ms`);
+    
+    return recordsWithOperationStatus || [];
+  };
+
+  const listRecords = async (forFolder: Folder) => {
+    const startTime = Date.now();
+    try {
+      const client = await setupApiClient(config);
+      setLoaderStatus(DataLoadingStatus.Loading);
+      const response = await client.get(forFolder.toDTO());
+      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
+
       const executionTime = Date.now() - startTime;
-      lastListRecordsExecutionTimeRef.current = executionTime;
-      console.log(`listRecords execution time: ${executionTime}ms`);
-      
-      return recordsWithOperationStatus || [];
+      return await processFetchedRecords(fetchedRecords, true, executionTime);
     } catch (error) {
       // Calculate execution time even on error
       const executionTime = Date.now() - startTime;
@@ -581,6 +606,34 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       
       setLoaderStatus(DataLoadingStatus.Error);
       toast.error('Error listing folder records');
+      return Promise.reject(error);
+    }
+  };
+
+  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, updateAvailableTags: boolean = false) => {
+    const startTime = Date.now();
+    try {
+      const client = await setupApiClient(config);
+      setLoaderStatus(DataLoadingStatus.Loading);
+      
+      const response = await client.getPartial({
+        folderId: forFolder.id!,
+        recordIds,
+        newerThan
+      });
+      
+      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
+
+      const executionTime = Date.now() - startTime;
+      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime);
+    } catch (error) {
+      // Calculate execution time even on error
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecordsPartial execution time (error): ${executionTime}ms`);
+      
+      setLoaderStatus(DataLoadingStatus.Error);
+      toast.error('Error listing partial records');
       return Promise.reject(error);
     }
   };
@@ -1960,81 +2013,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       newSet.delete(recordId);
       return newSet;
     });
-  };
-
-  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, updateAvailableTags: boolean = false) => {
-    const startTime = Date.now();
-    try {
-      const client = await setupApiClient(config);
-      setLoaderStatus(DataLoadingStatus.Loading);
-      
-      const response = await client.getPartial({
-        folderId: forFolder.id!,
-        recordIds,
-        newerThan
-      });
-      
-      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
-
-      // Only update available tags if requested (for full refresh)
-      if (updateAvailableTags) {
-        const fetchedTags = fetchedRecords.reduce((tags: FilterTag[], record: Record) => {
-          const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : [];
-          uniqueTags.forEach(tag => {
-            const existingTag = tags.find(t => t.tag === tag);
-            if (existingTag) {
-              existingTag.freq++;
-            } else {
-              tags.push({ tag, freq: 1 });
-            }
-          });
-          return tags;
-        }, []);
-
-        setFilterAvailableTags(fetchedTags);
-      }
-      
-      // Check for recent operations and update operationInProgress status
-      const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
-      
-      // Update only the fetched records in the existing records array
-      setRecords(prevRecords => {
-        const updatedRecords = [...prevRecords];
-        recordsWithOperationStatus?.forEach(fetchedRecord => {
-          const existingIndex = updatedRecords.findIndex(r => r.id === fetchedRecord.id);
-          if (existingIndex >= 0) {
-            updatedRecords[existingIndex] = fetchedRecord;
-          } else {
-            updatedRecords.push(fetchedRecord);
-          }
-        });
-        return updatedRecords;
-      });
-      
-      setLastRefreshed(new Date());
-      setLoaderStatus(DataLoadingStatus.Success);
-      
-      // Auto-parse records that need parsing
-      if (recordsWithOperationStatus) {
-        await autoParseRecords(recordsWithOperationStatus);
-      }
-      
-      // Calculate and store execution time
-      const executionTime = Date.now() - startTime;
-      lastListRecordsExecutionTimeRef.current = executionTime;
-      console.log(`listRecordsPartial execution time: ${executionTime}ms`);
-      
-      return recordsWithOperationStatus || [];
-    } catch (error) {
-      // Calculate execution time even on error
-      const executionTime = Date.now() - startTime;
-      lastListRecordsExecutionTimeRef.current = executionTime;
-      console.log(`listRecordsPartial execution time (error): ${executionTime}ms`);
-      
-      setLoaderStatus(DataLoadingStatus.Error);
-      toast.error('Error listing partial records');
-      return Promise.reject(error);
-    }
   };
 
   return (
