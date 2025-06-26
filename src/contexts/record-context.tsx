@@ -1941,14 +1941,17 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
   };
 
-  // Start auto-refresh interval
-  const startAutoRefresh = (forFolder: Folder) => {
-    console.log('startAutoRefresh called for folder:', forFolder.id);
-    
-    // Clear existing interval
-    if (refreshIntervalRef.current) {
-      clearInterval(refreshIntervalRef.current);
-      console.log('Cleared existing auto-refresh interval');
+  // Shared helper to set up auto-refresh interval
+  const setupAutoRefreshInterval = (forFolder: Folder, forceRestart: boolean = false) => {
+    // Clear existing interval if forceRestart is true or if interval exists
+    if (forceRestart || refreshIntervalRef.current) {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        console.log('Cleared existing auto-refresh interval');
+      }
+    } else if (refreshIntervalRef.current) {
+      // If not forcing restart and interval exists, don't modify it
+      return;
     }
     
     // Check if there are any operations in progress - use ref for current value
@@ -1962,33 +1965,20 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
       console.log('Auto-refresh interval triggered, checking for updates...');
-      // Check current operation status inside the callback using ref
-      //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
       await checkAndRefreshRecords(forFolder);
     }, intervalMs);
+  };
+
+  // Start auto-refresh interval
+  const startAutoRefresh = (forFolder: Folder) => {
+    console.log('startAutoRefresh called for folder:', forFolder.id);
+    setupAutoRefreshInterval(forFolder, true);
   };
 
   // Update auto-refresh interval based on operation status
   const updateAutoRefreshInterval = (forFolder: Folder) => {
     if (!refreshIntervalRef.current) return; // No interval running
-    
-    // Check if there are any operations in progress - use ref for current value
-    const hasOperationsInProgress = Object.keys(operationProgressByRecordId).length > 0;
-    
-    // Calculate safe interval based on execution time
-    const currentIntervalMs = calculateSafeInterval(hasOperationsInProgress);
-    
-    // Clear existing interval
-    clearInterval(refreshIntervalRef.current);
-    
-    console.log(`Updating auto-refresh interval to ${currentIntervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
-    
-    // Set new interval with updated timing
-    refreshIntervalRef.current = setInterval(async () => {
-      // Check current operation status inside the callback using ref
-      //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
-      await checkAndRefreshRecords(forFolder);
-    }, currentIntervalMs);
+    setupAutoRefreshInterval(forFolder, true);
   };
 
   // Stop auto-refresh interval

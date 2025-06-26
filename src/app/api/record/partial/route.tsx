@@ -31,8 +31,6 @@ export async function GET(request: NextRequest, response: NextResponse) {
         if (newerThanId) {
             filter.newerThanId = newerThanId;
         }
-
-        console.log('filter', filter);
         
         const records = await repo.findAll({ filter });
         return Response.json(records);
