@@ -49,6 +49,21 @@ export class RecordApiClient extends ApiClient {
     async get(folder: FolderDTO): Promise<GetRecordsResponse> {
       return this.request<GetRecordsResponse>('/api/record?folderId=' + folder?.id, 'GET', RecordDTOEncSettings) as Promise<GetRecordsResponse>;
     }
+
+    async getPartial(params: { folderId: number; recordIds?: number[]; newerThan?: string; newerThanId?: number }): Promise<GetRecordsResponse> {
+      const search = new URLSearchParams();
+      search.append('folderId', String(params.folderId));
+      if (params.recordIds && params.recordIds.length > 0) {
+        search.append('recordIds', params.recordIds.join(','));
+      }
+      if (params.newerThan) {
+        search.append('newerThan', params.newerThan);
+      }
+      if (params.newerThanId) {
+        search.append('newerThanId', String(params.newerThanId));
+      }
+      return this.request<GetRecordsResponse>(`/api/record/partial?${search.toString()}`, 'GET', RecordDTOEncSettings) as Promise<GetRecordsResponse>;
+    }
   
     async put(record: PutRecordRequest): Promise<PutRecordResponse> {
       return this.request<PutRecordResponse>('/api/record', 'PUT', RecordDTOEncSettings, record) as Promise<PutRecordResponse>;

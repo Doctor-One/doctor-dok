@@ -118,6 +118,7 @@ export type RecordContextType = {
   updateRecord: (record: Record) => Promise<Record>;
   deleteRecord: (record: Record) => Promise<boolean>;
   listRecords: (forFolder: Folder) => Promise<Record[]>;
+  listRecordsPartial: (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number, updateAvailableTags?: boolean) => Promise<Record[]>;
   setCurrentRecord: (record: Record | null) => void; // new method
   loaderStatus: DataLoadingStatus;
   operationStatus: DataLoadingStatus;
@@ -175,6 +176,9 @@ export type RecordContextType = {
   startAutoRefresh: (forFolder: Folder) => void;
   stopAutoRefresh: () => void;
   lastRefreshed: Date | null;
+  visibleRecordIds: Set<number>;
+  addVisibleRecordId: (recordId: number) => void;
+  removeVisibleRecordId: (recordId: number) => void;
 }
 
 export const RecordContext = createContext<RecordContextType | null>(null);
@@ -190,7 +194,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [filterAvailableTags, setFilterAvailableTags] = useState<FilterTag[]>([]);
   const [filterSelectedTags, setFilterSelectedTags] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<string>('createdAt desc');
+  const [sortBy, setSortBy] = useState<string>('id desc');
   const [operationProgressByRecordId, setOperationProgressByRecordId] = useState<{
     [recordId: string]: {
       operationName: string;
@@ -209,6 +213,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [parsingDialogOpen, setParsingDialogOpen] = useState(false);
   const [parsingDialogRecordId, setParsingDialogRecordId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [visibleRecordIds, setVisibleRecordIds] = useState<Set<number>>(new Set());
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const dbContextRef = useRef<DatabaseContextType | null>(null);
   const lastListRecordsExecutionTimeRef = useRef<number>(0); // Store execution time in milliseconds
@@ -527,16 +532,16 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
-  const listRecords = async (forFolder: Folder) => {
-    const startTime = Date.now();
-    try {
-      const client = await setupApiClient(config);
-      setLoaderStatus(DataLoadingStatus.Loading);
-      const response = await client.get(forFolder.toDTO());
-      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
-
+  // Shared helper function for processing fetched records
+  const processFetchedRecords = async (
+    fetchedRecords: Record[], 
+    updateAvailableTags: boolean = false,
+    executionTime: number
+  ) => {
+    // Only update available tags if requested (for full refresh)
+    if (updateAvailableTags) {
       const fetchedTags = fetchedRecords.reduce((tags: FilterTag[], record: Record) => {
-        const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : []; //.filter(tag => !tags.some(t => t.tag === tag)) : [];
+        const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : [];
         uniqueTags.forEach(tag => {
           const existingTag = tags.find(t => t.tag === tag);
           if (existingTag) {
@@ -549,25 +554,40 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       }, []);
 
       setFilterAvailableTags(fetchedTags);
-      
-      // Check for recent operations and update operationInProgress status
-      const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
-      
-      setRecords(recordsWithOperationStatus || []);
-      setLastRefreshed(new Date());
-      setLoaderStatus(DataLoadingStatus.Success);
-      
-      // Auto-parse records that need parsing
-      if (recordsWithOperationStatus) {
-        await autoParseRecords(recordsWithOperationStatus);
-      }
-      
-      // Calculate and store execution time
+    }
+    
+    // Check for recent operations and update operationInProgress status
+    // This will also merge the fetched records with existing records and return the final merged list
+    const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
+    
+    // Set the final merged records in state
+    setRecords(recordsWithOperationStatus || []);
+    
+    setLastRefreshed(new Date());
+    setLoaderStatus(DataLoadingStatus.Success);
+    
+    // Auto-parse records that need parsing
+    if (recordsWithOperationStatus) {
+      await autoParseRecords(recordsWithOperationStatus);
+    }
+    
+    // Calculate and store execution time
+    lastListRecordsExecutionTimeRef.current = executionTime;
+    console.log(`Records processing execution time: ${executionTime}ms`);
+    
+    return recordsWithOperationStatus || [];
+  };
+
+  const listRecords = async (forFolder: Folder) => {
+    const startTime = Date.now();
+    try {
+      const client = await setupApiClient(config);
+      setLoaderStatus(DataLoadingStatus.Loading);
+      const response = await client.get(forFolder.toDTO());
+      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
+
       const executionTime = Date.now() - startTime;
-      lastListRecordsExecutionTimeRef.current = executionTime;
-      console.log(`listRecords execution time: ${executionTime}ms`);
-      
-      return recordsWithOperationStatus || [];
+      return await processFetchedRecords(fetchedRecords, true, executionTime);
     } catch (error) {
       // Calculate execution time even on error
       const executionTime = Date.now() - startTime;
@@ -576,6 +596,35 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       
       setLoaderStatus(DataLoadingStatus.Error);
       toast.error('Error listing folder records');
+      return Promise.reject(error);
+    }
+  };
+
+  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number, updateAvailableTags: boolean = false) => {
+    const startTime = Date.now();
+    try {
+      const client = await setupApiClient(config);
+      setLoaderStatus(DataLoadingStatus.Loading);
+      
+      const response = await client.getPartial({
+        folderId: forFolder.id!,
+        recordIds,
+        newerThan,
+        newerThanId
+      });
+      
+      const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
+
+      const executionTime = Date.now() - startTime;
+      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime);
+    } catch (error) {
+      // Calculate execution time even on error
+      const executionTime = Date.now() - startTime;
+      lastListRecordsExecutionTimeRef.current = executionTime;
+      console.log(`listRecordsPartial execution time (error): ${executionTime}ms`);
+      
+      setLoaderStatus(DataLoadingStatus.Error);
+      toast.error('Error listing partial records');
       return Promise.reject(error);
     }
   };
@@ -721,7 +770,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       // Get record IDs that are currently in the list
       const recordIds = records.map(record => record.id).filter(id => id !== undefined) as number[];
       
-      if (recordIds.length === 0) return;
+      if (recordIds.length === 0) {
+        // If no records to check, just merge fetched records with existing records
+        return mergeRecordsWithExisting(records);
+      }
       
       // Fetch operations for all records in a single request
       const response = await operationsApi.get({ recordIds });
@@ -825,20 +877,37 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           return updatedRecord;
         });
         
-        setRecords(updatedRecords);
+        // Merge the updated records with existing records and return the final merged list
+        const finalMergedRecords = mergeRecordsWithExisting(updatedRecords);
         
         // Process the parse queue if we added any records for resuming
         if (parseQueue.length > 0 && !parseQueueInProgress) {
           processParseQueue();
         }
         
-        return updatedRecords;
+        return finalMergedRecords;
       }
     } catch (error) {
       console.error('Error checking recent operations:', error);
     }
     
-    return records;
+    // If there was an error or no operations found, just merge fetched records with existing records
+    return mergeRecordsWithExisting(records);
+  };
+
+  // Helper function to merge fetched records with existing records
+  const mergeRecordsWithExisting = (fetchedRecords: Record[]): Record[] => {
+    const currentRecords = records; // Get current records from state
+    const updatedRecords = [...currentRecords];
+    fetchedRecords.forEach(fetchedRecord => {
+      const existingIndex = updatedRecords.findIndex(r => r.id === fetchedRecord.id);
+      if (existingIndex >= 0) {
+        updatedRecords[existingIndex] = fetchedRecord;
+      } else {
+        updatedRecords.push(fetchedRecord);
+      }
+    });
+    return updatedRecords;
   };
 
   const setupApiClient = async (config: ConfigContextType | null) => {
@@ -1800,7 +1869,38 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         // Check if server data is newer than our last refresh
         if (!lastRefreshed || (serverLastUpdate && new Date(serverLastUpdate) > lastRefreshed)) {
           console.log('Server data is newer, refreshing records');
-          await listRecords(forFolder);
+          
+          // Get record IDs that need updating:
+          // 1. Records with operations in progress
+          // 2. Visible records
+          // 3. Records newer than last refresh
+          const recordIdsToUpdate = new Set<number>();
+          
+          // Add records with operations in progress
+          Object.keys(operationProgressByRecordId).forEach(recordIdStr => {
+            const recordId = parseInt(recordIdStr);
+            if (!isNaN(recordId)) {
+              recordIdsToUpdate.add(recordId);
+            }
+          });
+          
+          // Add visible records
+          Array.from(visibleRecordIds).forEach(recordId => {
+            recordIdsToUpdate.add(recordId);
+          });
+          
+          const recordIdsArray = Array.from(recordIdsToUpdate);
+          const newerThan = lastRefreshed ? lastRefreshed.toISOString() : undefined;
+          
+          // Use partial update if we have specific records to update
+          if (recordIdsArray.length > 0 || newerThan) {
+            console.log('Using partial update for', recordIdsArray.length, 'records and newer than', newerThan);
+            await listRecordsPartial(forFolder, recordIdsArray.length > 0 ? recordIdsArray : undefined, newerThan, lastUpdateResponse.data.recordId || 0, false);
+          } else {
+            // Fall back to full refresh if no specific records to update
+            await listRecords(forFolder);
+          }
+          
           return serverLastUpdate;
         }
         
@@ -1821,7 +1921,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             if (recentFinishedOperations.length > 0) {
               console.log('Found recently finished operations, refreshing records');
               
-              await listRecords(forFolder);
+              // Use partial update for records with finished operations
+              const finishedRecordIds = recentFinishedOperations.map(op => op.recordId);
+              await listRecordsPartial(forFolder, finishedRecordIds, undefined, undefined, false);
               return recentFinishedOperations[0].operationLastStep;
             }
           }
@@ -1835,15 +1937,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Helper function to calculate safe interval based on execution time
   const calculateSafeInterval = (hasOperationsInProgress: boolean): number => {
     // Calculate safe interval based on execution time
-    const minIntervalMs = Math.max(10000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 10x execution time
+    const minIntervalMs = Math.max(2000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 5x execution time
     return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
   };
 
   // Start auto-refresh interval
   const startAutoRefresh = (forFolder: Folder) => {
+    console.log('startAutoRefresh called for folder:', forFolder.id);
+    
     // Clear existing interval
     if (refreshIntervalRef.current) {
       clearInterval(refreshIntervalRef.current);
+      console.log('Cleared existing auto-refresh interval');
     }
     
     // Check if there are any operations in progress - use ref for current value
@@ -1856,6 +1961,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
+      console.log('Auto-refresh interval triggered, checking for updates...');
       // Check current operation status inside the callback using ref
       //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
       await checkAndRefreshRecords(forFolder);
@@ -1912,6 +2018,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     dbContextRef.current = dbContext;
   }, [dbContext]);
 
+  const addVisibleRecordId = (recordId: number) => {
+    setVisibleRecordIds(prev => new Set(Array.from(prev).concat([recordId])));
+  };
+
+  const removeVisibleRecordId = (recordId: number) => {
+    setVisibleRecordIds(prev => {
+      const newSet = new Set(Array.from(prev));
+      newSet.delete(recordId);
+      return newSet;
+    });
+  };
+
   return (
     <RecordContext.Provider
       value={{
@@ -1926,6 +2044,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         setCurrentRecord,
         currentRecord,
         listRecords,
+        listRecordsPartial,
         checkAndRefreshRecords,
         startAutoRefresh,
         stopAutoRefresh,
@@ -1961,7 +2080,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         parsingDialogOpen,
         setParsingDialogOpen,
         parsingDialogRecordId,
-        setParsingDialogRecordId
+        setParsingDialogRecordId,
+        visibleRecordIds,
+        addVisibleRecordId,
+        removeVisibleRecordId
       }}
     >
       {children}

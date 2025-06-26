@@ -39,7 +39,13 @@ export default function ZoomableImage({
           id={id}
         />
       </DialogTrigger>
-      <DialogContent className="max-w-7xl border-0 bg-transparent p-0">
+      <DialogContent 
+        className="max-w-7xl border-0 bg-transparent p-0" 
+        onClick={() => {
+          // Close popup when clicking anywhere in the dialog
+          setIsOpen(false);
+        }}
+      >
         <div className="relative h-[calc(100vh-220px)] w-full overflow-clip rounded-md bg-transparent shadow-md">
           <Image src={src} fill alt={alt || ''} className="h-full w-full object-contain" />
         </div>

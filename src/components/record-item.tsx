@@ -233,7 +233,17 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsVisible(entry.isIntersecting);
+        const isVisible = entry.isIntersecting;
+        setIsVisible(isVisible);
+        
+        // Track visible records in the context
+        if (record.id && typeof record.id === 'number') {
+          if (isVisible) {
+            recordContext?.addVisibleRecordId(record.id);
+          } else {
+            recordContext?.removeVisibleRecordId(record.id);
+          }
+        }
       },
       {
         root: null, // viewport
@@ -250,6 +260,7 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
       if (thisElementRef.current) {
         observer.unobserve(thisElementRef.current);
       }
+
     };
   }, [])
 
