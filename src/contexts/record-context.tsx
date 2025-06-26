@@ -118,7 +118,7 @@ export type RecordContextType = {
   updateRecord: (record: Record) => Promise<Record>;
   deleteRecord: (record: Record) => Promise<boolean>;
   listRecords: (forFolder: Folder) => Promise<Record[]>;
-  listRecordsPartial: (forFolder: Folder, recordIds?: number[], newerThan?: string, updateAvailableTags?: boolean) => Promise<Record[]>;
+  listRecordsPartial: (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number, updateAvailableTags?: boolean) => Promise<Record[]>;
   setCurrentRecord: (record: Record | null) => void; // new method
   loaderStatus: DataLoadingStatus;
   operationStatus: DataLoadingStatus;
@@ -194,7 +194,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const [filterAvailableTags, setFilterAvailableTags] = useState<FilterTag[]>([]);
   const [filterSelectedTags, setFilterSelectedTags] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<string>('createdAt desc');
+  const [sortBy, setSortBy] = useState<string>('id desc');
   const [operationProgressByRecordId, setOperationProgressByRecordId] = useState<{
     [recordId: string]: {
       operationName: string;
@@ -557,21 +557,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
     
     // Check for recent operations and update operationInProgress status
+    // This will also merge the fetched records with existing records and return the final merged list
     const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
     
-    // Update records in state
-    setRecords(prevRecords => {
-      const updatedRecords = [...prevRecords];
-      recordsWithOperationStatus?.forEach(fetchedRecord => {
-        const existingIndex = updatedRecords.findIndex(r => r.id === fetchedRecord.id);
-        if (existingIndex >= 0) {
-          updatedRecords[existingIndex] = fetchedRecord;
-        } else {
-          updatedRecords.push(fetchedRecord);
-        }
-      });
-      return updatedRecords;
-    });
+    // Set the final merged records in state
+    setRecords(recordsWithOperationStatus || []);
     
     setLastRefreshed(new Date());
     setLoaderStatus(DataLoadingStatus.Success);
@@ -610,7 +600,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
-  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, updateAvailableTags: boolean = false) => {
+  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number, updateAvailableTags: boolean = false) => {
     const startTime = Date.now();
     try {
       const client = await setupApiClient(config);
@@ -619,7 +609,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const response = await client.getPartial({
         folderId: forFolder.id!,
         recordIds,
-        newerThan
+        newerThan,
+        newerThanId
       });
       
       const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
@@ -779,7 +770,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       // Get record IDs that are currently in the list
       const recordIds = records.map(record => record.id).filter(id => id !== undefined) as number[];
       
-      if (recordIds.length === 0) return;
+      if (recordIds.length === 0) {
+        // If no records to check, just merge fetched records with existing records
+        return mergeRecordsWithExisting(records);
+      }
       
       // Fetch operations for all records in a single request
       const response = await operationsApi.get({ recordIds });
@@ -883,20 +877,37 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           return updatedRecord;
         });
         
-        setRecords(updatedRecords);
+        // Merge the updated records with existing records and return the final merged list
+        const finalMergedRecords = mergeRecordsWithExisting(updatedRecords);
         
         // Process the parse queue if we added any records for resuming
         if (parseQueue.length > 0 && !parseQueueInProgress) {
           processParseQueue();
         }
         
-        return updatedRecords;
+        return finalMergedRecords;
       }
     } catch (error) {
       console.error('Error checking recent operations:', error);
     }
     
-    return records;
+    // If there was an error or no operations found, just merge fetched records with existing records
+    return mergeRecordsWithExisting(records);
+  };
+
+  // Helper function to merge fetched records with existing records
+  const mergeRecordsWithExisting = (fetchedRecords: Record[]): Record[] => {
+    const currentRecords = records; // Get current records from state
+    const updatedRecords = [...currentRecords];
+    fetchedRecords.forEach(fetchedRecord => {
+      const existingIndex = updatedRecords.findIndex(r => r.id === fetchedRecord.id);
+      if (existingIndex >= 0) {
+        updatedRecords[existingIndex] = fetchedRecord;
+      } else {
+        updatedRecords.push(fetchedRecord);
+      }
+    });
+    return updatedRecords;
   };
 
   const setupApiClient = async (config: ConfigContextType | null) => {
@@ -1884,7 +1895,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           // Use partial update if we have specific records to update
           if (recordIdsArray.length > 0 || newerThan) {
             console.log('Using partial update for', recordIdsArray.length, 'records and newer than', newerThan);
-            await listRecordsPartial(forFolder, recordIdsArray.length > 0 ? recordIdsArray : undefined, newerThan, false);
+            await listRecordsPartial(forFolder, recordIdsArray.length > 0 ? recordIdsArray : undefined, newerThan, lastUpdateResponse.data.recordId || 0, false);
           } else {
             // Fall back to full refresh if no specific records to update
             await listRecords(forFolder);
@@ -1912,7 +1923,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               
               // Use partial update for records with finished operations
               const finishedRecordIds = recentFinishedOperations.map(op => op.recordId);
-              await listRecordsPartial(forFolder, finishedRecordIds, undefined, false);
+              await listRecordsPartial(forFolder, finishedRecordIds, undefined, undefined, false);
               return recentFinishedOperations[0].operationLastStep;
             }
           }
@@ -1926,15 +1937,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Helper function to calculate safe interval based on execution time
   const calculateSafeInterval = (hasOperationsInProgress: boolean): number => {
     // Calculate safe interval based on execution time
-    const minIntervalMs = Math.max(10000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 10x execution time
+    const minIntervalMs = Math.max(5000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 5x execution time
     return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
   };
 
   // Start auto-refresh interval
   const startAutoRefresh = (forFolder: Folder) => {
+    console.log('startAutoRefresh called for folder:', forFolder.id);
+    
     // Clear existing interval
     if (refreshIntervalRef.current) {
       clearInterval(refreshIntervalRef.current);
+      console.log('Cleared existing auto-refresh interval');
     }
     
     // Check if there are any operations in progress - use ref for current value
@@ -1947,6 +1961,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
+      console.log('Auto-refresh interval triggered, checking for updates...');
       // Check current operation status inside the callback using ref
       //const currentHasOperations = Object.keys(operationProgressByRecordId).length > 0;
       await checkAndRefreshRecords(forFolder);

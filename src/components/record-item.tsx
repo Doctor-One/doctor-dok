@@ -260,13 +260,9 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
       if (thisElementRef.current) {
         observer.unobserve(thisElementRef.current);
       }
-      
-      // Clean up visible record tracking when component unmounts
-      if (record.id && typeof record.id === 'number') {
-        recordContext?.removeVisibleRecordId(record.id);
-      }
+
     };
-  }, [record.id, recordContext])
+  }, [])
 
   const downloadAsHtml = (text: string | undefined, filename: string) => {
     if (!text) return;

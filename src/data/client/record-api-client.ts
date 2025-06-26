@@ -50,7 +50,7 @@ export class RecordApiClient extends ApiClient {
       return this.request<GetRecordsResponse>('/api/record?folderId=' + folder?.id, 'GET', RecordDTOEncSettings) as Promise<GetRecordsResponse>;
     }
 
-    async getPartial(params: { folderId: number; recordIds?: number[]; newerThan?: string }): Promise<GetRecordsResponse> {
+    async getPartial(params: { folderId: number; recordIds?: number[]; newerThan?: string; newerThanId?: number }): Promise<GetRecordsResponse> {
       const search = new URLSearchParams();
       search.append('folderId', String(params.folderId));
       if (params.recordIds && params.recordIds.length > 0) {
@@ -58,6 +58,9 @@ export class RecordApiClient extends ApiClient {
       }
       if (params.newerThan) {
         search.append('newerThan', params.newerThan);
+      }
+      if (params.newerThanId) {
+        search.append('newerThanId', String(params.newerThanId));
       }
       return this.request<GetRecordsResponse>(`/api/record/partial?${search.toString()}`, 'GET', RecordDTOEncSettings) as Promise<GetRecordsResponse>;
     }

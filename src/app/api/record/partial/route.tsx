@@ -10,6 +10,7 @@ export async function GET(request: NextRequest, response: NextResponse) {
     const folderId = searchParams.get('folderId');
     const recordIds = searchParams.get('recordIds');
     const newerThan = searchParams.get('newerThan');
+    const newerThanId = searchParams.get('newerThanId');
     
     if (!folderId) {
         return Response.json({ message: "folderId parameter is required", status: 400 }, { status: 400 });
@@ -26,6 +27,12 @@ export async function GET(request: NextRequest, response: NextResponse) {
         if (newerThan) {
             filter.newerThan = newerThan;
         }
+
+        if (newerThanId) {
+            filter.newerThanId = newerThanId;
+        }
+
+        console.log('filter', filter);
         
         const records = await repo.findAll({ filter });
         return Response.json(records);
