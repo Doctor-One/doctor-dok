@@ -1937,7 +1937,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Helper function to calculate safe interval based on execution time
   const calculateSafeInterval = (hasOperationsInProgress: boolean): number => {
     // Calculate safe interval based on execution time
-    const minIntervalMs = Math.max(5000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 5x execution time
+    const minIntervalMs = Math.max(2000, lastListRecordsExecutionTimeRef.current * 5); // At least 10s, or 5x execution time
     return hasOperationsInProgress ? minIntervalMs : Math.max(20000, minIntervalMs); // 20s minimum when idle, or execution time based
   };
 

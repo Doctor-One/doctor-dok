@@ -41,12 +41,6 @@ export default function RecordsWrapper({}) {
     }; // eslint-disable-next-line    
   }, [folderContext?.currentFolder/*, documentVisible*/]);
 
-  // Cleanup auto-refresh when component unmounts or folder changes
-  useEffect(() => {
-    return () => {
-      recordContext?.stopAutoRefresh();
-    };
-  }, [recordContext, folderContext?.currentFolder]);
     
   return (
     <div className="grid grow w-full bg-zinc-100 dark:bg-zinc-950">
