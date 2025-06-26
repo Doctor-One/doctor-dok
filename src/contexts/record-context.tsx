@@ -2,7 +2,7 @@ import '@enhances/with-resolvers';
 import React, { createContext, useState, useEffect, useContext, PropsWithChildren, useRef } from 'react';
 import { EncryptedAttachmentDTO, EncryptedAttachmentDTOEncSettings, RecordDTO } from '@/data/dto';
 import { RecordApiClient } from '@/data/client/record-api-client';
-import { ApiEncryptionConfig, encryptKeyForServer } from '@/data/client/base-api-client';
+import { ApiEncryptionConfig, temporaryEncryptKeyForServer } from '@/data/client/base-api-client';
 import { DataLoadingStatus, DisplayableDataObject, EncryptedAttachment, Folder, Record, PostParseCallback, RegisteredOperations, AVERAGE_PAGE_TOKENS } from '@/data/client/models';
 import { ConfigContext, ConfigContextType } from '@/contexts/config-context';
 import { toast } from 'sonner';
@@ -35,6 +35,7 @@ import { parse as chatgptPagedParseRecord } from '@/ocr/ocr-llm-provider-paged';
 import { PdfConversionApiClient } from '@/data/client/pdf-conversion-api-client';
 import { isIOS } from '@/lib/utils';
 import { OperationsApiClient } from '@/data/client/operations-api-client';
+import { temporaryServerEncryptionKey } from '@/lib/shared-key-helpers';
 
 
 // Add the helper function before the parseQueueInProgress variable
@@ -943,7 +944,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     console.log('Download attachment', attachmentDTO);
 
     const client = await setupAttachmentsApiClient(config);
-    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO) : await client.get(attachmentDTO);    // decrypt on server side if needed
+    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO, await temporaryServerEncryptionKey(dbContextRef.current!, saasContext)) : await client.get(attachmentDTO);    // decrypt on server side if needed
 
     if (type === AttachmentFormat.blobUrl) {
       const blob = new Blob([arrayBufferData], { type: attachmentDTO.mimeType + ";charset=utf-8" });
@@ -965,8 +966,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     try {
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
+
+        const tempKey = await temporaryServerEncryptionKey(dbContextRef.current!, saasContext);
+
         console.log('Downloading attachment with server-side decryption');
-        url =  '/download/' + attachment.storageKey + '?encr=' + await encryptKeyForServer(dbContextRef.current?.serverCommunicationKey as string, dbContextRef.current?.encryptionKey as string) + '&token=' + dbContextRef.current?.accessToken;
+        url =  '/download/' + attachment.storageKey + '?encr=' + encodeURIComponent(tempKey.encryptedKey) + '&token=' + encodeURIComponent(dbContextRef.current?.accessToken) + '&klh=' + encodeURIComponent(tempKey.keyLocatorHash) + '&kh=' + encodeURIComponent(tempKey.keyHash);
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }
@@ -1019,6 +1023,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             console.log('Converting PDF to images server-side');
             const apiClient = new PdfConversionApiClient('', dbContext, saasContext);
             const result = await apiClient.convertPdf({
+              temporaryServerKey: await temporaryServerEncryptionKey(dbContextRef.current!, saasContext),
               storageKey: ea.storageKey,
               conversion_config: { image_format: 'image/jpeg', height: (process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT ? parseFloat(process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT) : 3200)   /*, scale: process.env.NEXT_PUBLIC_PDF_SCALE ? parseFloat(process.env.NEXT_PUBLIC_PDF_SCALE) : 0.9 }*/ }
             });

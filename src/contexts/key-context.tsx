@@ -9,6 +9,7 @@ import { ConfigContextType } from '@/contexts/config-context';
 import { getCurrentTS } from '@/lib/utils';
 import assert from 'assert';
 import { SaaSContext, SaaSContextType } from './saas-context';
+import { addKeyHelper } from '@/lib/shared-key-helpers';
 const argon2 = require("argon2-browser");
 
 interface KeyContextProps {
@@ -61,60 +62,18 @@ export const KeyContextProvider: React.FC<PropsWithChildren> = ({ children }) =>
         role: 'guest',
         features: ['*']
     } ): Promise<PutKeyResponse> => {
-        // setKeys((prevKeys) => [...prevKeys, newKey]);
-        const keyHashParams = {
-            salt: generateEncryptionKey(),
-            time: 2,
-            mem: 16 * 1024,
-            hashLen: 32,
-            parallelism: 1
-        } 
-        const keyHash = await argon2.hash({
-          pass: sharedKey,
-          salt: keyHashParams.salt,
-          time: keyHashParams.time,
-          mem: keyHashParams.mem,
-          hashLen: keyHashParams.hashLen,
-          parallelism: keyHashParams.parallelism
-        });
-        const databaseIdHash = await sha256(databaseId, defaultDatabaseIdHashSalt);
-        const keyLocatorHash = await sha256(sharedKey + databaseId, defaultKeyLocatorHashSalt);
-
-        const existingKey = keys.find((key) => key.keyLocatorHash === keyLocatorHash);
-        if (existingKey) {
-            
-            toast.error('Key already exists, please choose a different key!');
-            throw new Error('Key already exists');
-        }
-
-        const encryptionUtils = new EncryptionUtils(sharedKey);
-        const masterKey = await dbContext?.masterKey;
-        assert(masterKey, 'Master key is not set');
-        const encryptedMasterKey = await encryptionUtils.encrypt(masterKey);
-        
-        const apiClient = await setupApiClient(null);
-        const keyDTO: KeyDTO = {
-            databaseIdHash,
-            encryptedMasterKey,
-            keyHash: keyHash.encoded,
-            keyHashParams: JSON.stringify(keyHashParams),
-            keyLocatorHash,
+        return addKeyHelper(
+            databaseId,
             displayName,
-            acl: JSON.stringify(acl),
-            expiryDate: expDate !== null ? expDate.toISOString() : '',
-            updatedAt: getCurrentTS()
-        };
-
-        const result = await apiClient.put(keyDTO);
-        
-        if(result.status === 200) {
-            toast('Shared Key succesfull added. Please send Database Id and Key value to the user you like to share date with.')
-        } else {
-            toast.error((result as PutKeyResponseError).message);
-        }
-
-        return result;
-
+            sharedKey,
+            expDate,
+            acl,
+            dbContext!,
+            saasContext,
+            keys,
+            () => toast('Shared Key succesfull added. Please send Database Id and Key value to the user you like to share date with.'),
+            (message) => toast.error(message)
+        );
     };
 
     const removeKey = async (keyLocatorHash: string) => {

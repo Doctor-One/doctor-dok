@@ -2,6 +2,7 @@ import { PdfConversionApiClient } from '@/data/client/pdf-conversion-api-client'
 import { DatabaseContext } from '@/contexts/db-context';
 import { SaaSContext } from '@/contexts/saas-context';
 import { isIOS } from './utils';
+import { temporaryServerEncryptionKey } from '@/lib/shared-key-helpers';
 
 const MAX_CANVAS_PIXELS = 16_777_216;
 
@@ -62,6 +63,7 @@ export async function convert(
     try {
       const apiClient = new PdfConversionApiClient('', contexts?.dbContext, contexts?.saasContext);
       const result = await apiClient.convertPdf({
+        temporaryServerKey: await temporaryServerEncryptionKey(contexts?.dbContext, contexts?.saasContext),
         pdfBase64,
         conversion_config
       });

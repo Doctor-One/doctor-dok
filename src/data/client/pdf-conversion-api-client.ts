@@ -1,10 +1,12 @@
 import { ApiClient } from './base-api-client';
 import { DatabaseContextType } from '@/contexts/db-context';
 import { SaaSContextType } from '@/contexts/saas-context';
+import { KeyDTO } from '../dto';
 
 export type PdfConversionRequest = {
   pdfBase64?: string;
   storageKey?: string;
+  temporaryServerKey?: KeyDTO & { encryptedKey: string };
   conversion_config?: {
     image_format?: string;
     height?: number;
@@ -26,7 +28,7 @@ export class PdfConversionApiClient extends ApiClient {
   }
 
   async convertPdf(request: PdfConversionRequest): Promise<PdfConversionResponse> {
-    const result = await this.request<PdfConversionResponse>('/api/convert-pdf', 'POST', { ecnryptedFields: [], passTemporaryServerEncryptionKey: true }, request);
+    const result = await this.request<PdfConversionResponse>('/api/convert-pdf', 'POST', { ecnryptedFields: [], temporaryServerKey: request.temporaryServerKey }, request);
     return Array.isArray(result) ? result[0] : result;
   }
 } 
