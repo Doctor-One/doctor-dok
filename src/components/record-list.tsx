@@ -51,20 +51,12 @@ export default function RecordList({ folder }: {folder: Folder}) {
     });
   });
 
-  // Auto-refresh logic: refresh data 1 minute after filters are applied
+
   useEffect(() => {
-    // Start auto-refresh when folder changes or filters are applied
-    if (folderContext?.currentFolder && recordContext?.startAutoRefresh) {
-      recordContext.startAutoRefresh(folderContext.currentFolder);
+    if (folderContext?.currentFolder) {
+      recordContext?.startAutoRefresh(folderContext.currentFolder);
     }
-    
-    // Cleanup when component unmounts or dependencies change
-    return () => {
-      if (recordContext?.stopAutoRefresh) {
-        recordContext.stopAutoRefresh();
-      }
-    };
-  }, [folderContext?.currentFolder, recordContext?.filteredRecords, recordContext?.filterSelectedTags]);
+  }, [folderContext?.currentFolder]);
 
   return (
     <div className="bg-white dark:bg-zinc-900 md:p-4 md:rounded-lg shadow-sm">

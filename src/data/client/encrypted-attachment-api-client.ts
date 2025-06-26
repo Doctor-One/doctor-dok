@@ -1,6 +1,6 @@
 import { DatabaseContextType } from "@/contexts/db-context";
 import { SaaSContextType } from "@/contexts/saas-context";
-import { EncryptedAttachmentDTO } from "../dto";
+import { EncryptedAttachmentDTO, KeyDTO } from "../dto";
 import { ApiClient, ApiEncryptionConfig } from "./base-api-client";
 
 export type PutEncryptedAttachmentRequest = FormData | EncryptedAttachmentDTO;
@@ -42,8 +42,8 @@ export class EncryptedAttachmentApiClient extends ApiClient {
       return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined);
     }
 
-    async getDecryptedServerSide(attachment: EncryptedAttachmentDTO): Promise<ArrayBuffer | undefined | null> { // unsafe - as it passes the encryption key to the server
-      return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined, true);
+    async getDecryptedServerSide(attachment: EncryptedAttachmentDTO, temporaryServerKey: KeyDTO & { encryptedKey: string }): Promise<ArrayBuffer | undefined | null> { // unsafe - as it passes the encryption key to the server
+      return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined, temporaryServerKey);
     }
 
 

@@ -29,12 +29,7 @@ export default function RecordsWrapper({}) {
     if(recordContext && folderContext && folderContext.currentFolder) {
       //if (documentVisible) {
         recordContext?.listRecords(folderContext?.currentFolder).then(fetchedRecords => {
-          if (dbContext && folderContext?.currentFolder) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: folderContext?.currentFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });
-          
-          // Start auto-refresh after initial load
-          if (folderContext?.currentFolder) {
-            recordContext?.startAutoRefresh(folderContext.currentFolder);
-          }
+          if (dbContext && folderContext?.currentFolder) auditContext?.record({ eventName: 'listRecords', recordLocator: JSON.stringify([{ folderId: folderContext?.currentFolder.id, recordIds: [fetchedRecords.map(r => r.id)] }]) });          
         });
 
       //}

@@ -1,35 +1,19 @@
-import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
-import { DTOEncryptionSettings } from "../dto";
+import { DTOEncryptionFilter, EncryptionUtils, generateEncryptionKey } from "@/lib/crypto";
+import { DTOEncryptionSettings, KeyDTO } from "../dto";
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { DatabaseContextType } from "@/contexts/db-context";
 import { SaaSContextType } from "@/contexts/saas-context";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils";
+import { ApiError } from "@/data/dto";
+import { PutKeyResponseSuccess } from "./key-api-client";
 
 export type ApiEncryptionConfig = {
   secretKey?: string;
   useEncryption: boolean;
 };
 
-export class ApiError extends Error {
-  public code: number|string;
-  public additionalData?: any;
 
-  constructor(message: string, code: number|string, additionalData?: any) {
-    super(message);
-    this.code = code;
-    this.additionalData = additionalData;
-  }
-}
-
-// Helper function to encrypt the key for server communication
-export async function encryptKeyForServer(
-  serverCommunicationKey: string,
-  keyToEncrypt: string
-): Promise<string> {
-  const keyEncryptionTools = new EncryptionUtils(serverCommunicationKey);
-  return await keyEncryptionTools.encrypt(keyToEncrypt);
-}
 
 export class ApiClient {
   private baseUrl: string;
@@ -59,7 +43,7 @@ export class ApiClient {
   public async getArrayBuffer(
     endpoint: string,
     repeatedRequestAccessToken = '',
-    passTemporaryServerEncryptionKey = false
+    temporaryKey: KeyDTO & { encryptedKey: string } | null = null
   ): Promise<ArrayBuffer | null | undefined> {
     const headers: Record<string, string> = {};
 
@@ -67,9 +51,10 @@ export class ApiClient {
       headers['Authorization'] = `Bearer ${repeatedRequestAccessToken ? repeatedRequestAccessToken : this.dbContext?.accessToken}`;
     }
 
-    const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
-    if(serverCommunicationKey && passTemporaryServerEncryptionKey) {
-      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.encryptionKey as string);
+    if(this.dbContext && temporaryKey) {
+      headers['Encryption-Key'] = temporaryKey.encryptedKey;
+      headers['Key-Locator-Hash'] = temporaryKey.keyLocatorHash;
+      headers['Key-Hash'] = temporaryKey.keyHash;
     }
 
     if(this.dbContext?.databaseHashId) {
@@ -100,7 +85,7 @@ export class ApiClient {
           })
           if((refreshResult)?.success) {
             console.log('Refresh token success', this.dbContext?.accessToken);
-            return this.getArrayBuffer(endpoint, refreshResult.accessToken);
+            return this.getArrayBuffer(endpoint, refreshResult.accessToken, temporaryKey);
           } else {
             this.dbContext?.logout();
             toast.error('Refresh token failed. Please try to log-in again.');
@@ -141,9 +126,10 @@ export class ApiClient {
       headers['Database-Id-Hash'] = this.dbContext?.databaseHashId;
     }
 
-    const serverCommunicationKey = this.dbContext?.serverCommunicationKey;
-    if(serverCommunicationKey && encryptionSettings?.passTemporaryServerEncryptionKey) {
-      headers['Encryption-Key'] = await encryptKeyForServer(serverCommunicationKey, this.dbContext?.encryptionKey as string);
+    if(this.dbContext && encryptionSettings?.temporaryServerKey) {
+      headers['Encryption-Key'] = encryptionSettings.temporaryServerKey.encryptedKey;
+      headers['Key-Locator-Hash'] = encryptionSettings.temporaryServerKey.keyLocatorHash;
+      headers['Key-Hash'] = encryptionSettings.temporaryServerKey.keyHash;
     }
 
     if(this.saasToken) {

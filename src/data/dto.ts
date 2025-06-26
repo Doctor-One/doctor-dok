@@ -3,7 +3,7 @@ import { getCurrentTS } from "@/lib/utils";
 
 export type DTOEncryptionSettings = {
   ecnryptedFields: string[]
-  passTemporaryServerEncryptionKey?: boolean
+  temporaryServerKey?: KeyDTO & { encryptedKey: string }
 }
 
 export const folderDTOSchema = z.object({
@@ -159,6 +159,13 @@ export const databaseAuthorizeRequestSchema = z.object({
 });
 export type DatabaseAuthorizeRequestDTO = z.infer<typeof databaseAuthorizeRequestSchema>;
 
+export const deleteKeyRequestSchema = z.object({
+  keyLocatorHash: z.string().min(64).max(64),
+  keyHash: z.string().min(32),
+  databaseIdHash: z.string().min(1).min(64).max(64),
+});
+export type DeleteKeyRequestDTO = z.infer<typeof deleteKeyRequestSchema>;
+
 export const databaseRefreshRequestSchema = z.object({
   refreshToken: z.string().min(1),
 });
@@ -265,4 +272,17 @@ export type AggregatedStatsDTO = {
     overalUSD: number;
     requests: number;
   },
+}
+
+
+
+export class ApiError extends Error {
+  public code: number|string;
+  public additionalData?: any;
+
+  constructor(message: string, code: number|string, additionalData?: any) {
+    super(message);
+    this.code = code;
+    this.additionalData = additionalData;
+  }
 }

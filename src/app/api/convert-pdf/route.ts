@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { convertServerSide } from '@/lib/pdf2js-server';
-import { authorizeRequestContext } from '@/lib/generic-api';
+import { authorizeRequestContext, AuthorizedRequestContext } from '@/lib/generic-api';
 import { StorageService } from '@/lib/storage-service';
 import { EncryptionUtils } from '@/lib/crypto';
+import { rmdirSync } from 'fs';
+import { join } from 'path';
+import { nanoid } from 'nanoid';
+import { deleteTemporaryServerKey } from '@/data/server/server-key-helpers';
 
 export async function POST(request: NextRequest) {
+  let tempDir: string = '';
+  let context: AuthorizedRequestContext | null = null;
   try {
 
-    const context = await authorizeRequestContext(request);
+    context = await authorizeRequestContext(request); // we need to authorize the request to get the temporary server key
     const storageService = new StorageService(context.databaseIdHash);
-    const tempDir = storageService.getTempDir();
+    tempDir = join(storageService.getTempDir(), nanoid());
+    
 
     const body = await request.json();
     let { pdfBase64, conversion_config, storageKey } = body;
@@ -47,5 +54,12 @@ export async function POST(request: NextRequest) {
       { error: 'Failed to convert PDF', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
+  } finally {
+    if (context) {
+      context.deleteTemporaryServerKey();
+    }
+    if (tempDir) {
+      rmdirSync(tempDir, { recursive: true });
+    }
   }
 } 
