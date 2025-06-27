@@ -45,7 +45,7 @@ export async function deleteTemporaryServerKey(deleteKeyReqeuest: DeleteKeyReque
         return false;      
     } else {
         
-    if (existingKeys[0].keyHash !== deleteKeyReqeuest.keyHash || !existingKeys[0].expiryDate || !checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave) || existingKeys[0].zone !== KeyAuthorizationZone.Enclave ) {     // double check if the key is the same as the one we're trying to delete - it must be temporary
+    if (existingKeys[0].keyHash !== deleteKeyReqeuest.keyHash || !existingKeys[0].expiryDate || !(await checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave)) || existingKeys[0].zone !== KeyAuthorizationZone.Enclave ) {     // double check if the key is the same as the one we're trying to delete - it must be temporary
             console.error('Key is not the same as the one we\'re trying to delete - it must be temporary');
             return false;
         } else {
