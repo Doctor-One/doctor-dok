@@ -4,7 +4,7 @@ import { ZodError, ZodObject } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeKey, deleteTemporaryServerKey } from "@/data/server/server-key-helpers";
 import { jwtVerify } from "jose";
-import { defaultKeyACL, KeyACLDTO, KeyDTO, SaaSDTO } from "@/data/dto";
+import { defaultKeyACL, KeyACLDTO, KeyAuthorizationZone, KeyDTO, SaaSDTO } from "@/data/dto";
 import { Key } from "react";
 import { PlatformApiClient } from "@/data/server/platform-api-client";
 import NodeCache from "node-cache";
@@ -193,7 +193,7 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
                 masterKey: masterKey,
                 encryptionKey: encryptionKey,
                 serverCommunicationKey: otpManager.getOTP(keyLocatorHash),
-                deleteTemporaryServerKey: () => deleteTemporaryServerKey({ keyLocatorHash: destKeyLocatorHash, keyHash: destKeyHash, databaseIdHash: destDatabaseIdHash })
+                deleteTemporaryServerKey: () => aclDTO?.role === KeyAuthorizationZone.Enclave ? deleteTemporaryServerKey({ keyLocatorHash: destKeyLocatorHash, keyHash: destKeyHash, databaseIdHash: destDatabaseIdHash }) : new Promise((resolve) => resolve(false)) // only allow deletion of temporary keys
             }
         }
     } else {

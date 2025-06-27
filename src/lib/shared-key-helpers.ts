@@ -1,8 +1,8 @@
 import { EncryptionUtils, generateEncryptionKey, sha256 } from '@/lib/crypto';
 import { Key } from '@/data/client/models';
 import { DatabaseContextType, defaultDatabaseIdHashSalt, defaultKeyLocatorHashSalt } from '@/contexts/db-context';
-import { KeyACLDTO, KeyDTO } from '@/data/dto';
-import { KeyApiClient, PutKeyResponse, PutKeyResponseError } from '@/data/client/key-api-client';
+import { KeyACLDTO, KeyAuthorizationZone, KeyDTO } from '@/data/dto';
+import { KeyApiClient, PutKeyResponse, PutKeyResponseError, PutKeyResponseSuccess } from '@/data/client/key-api-client';
 import { SaaSContextType } from '@/contexts/saas-context';
 import { getCurrentTS } from '@/lib/utils';
 import assert from 'assert';
@@ -19,7 +19,11 @@ export async function temporaryServerEncryptionKey(
   
     try {
       const sharedKey = generateEncryptionKey();
-      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: 'temp', features: ['*'] }, dbContext, saasContext) as PutKeyResponseSuccess;
+      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: KeyAuthorizationZone.Enclave , features: ['*'] }, dbContext, saasContext) as PutKeyResponse;
+
+      if (generatedKey.status !== 200) {
+        throw new Error(`Failed to generate temporary key: ${generatedKey.message}`);
+      }
   
       const keyEncryptionTools = new EncryptionUtils(dbContext.serverCommunicationKey);
       const encryptedKey = await keyEncryptionTools.encrypt(sharedKey);

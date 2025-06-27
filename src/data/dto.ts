@@ -25,6 +25,11 @@ export const configDTOSchema = z.object({
 export const ConfigDTOEncSettings: DTOEncryptionSettings =  { ecnryptedFields: ['value'] }
 export type ConfigDTO = z.infer<typeof configDTOSchema>;
 
+export enum KeyAuthorizationZone {
+  Standard = '',
+  Enclave = 'enclave'
+}
+
 export const keyDTOSchema = z.object({
   displayName: z.string().min(1),
   keyLocatorHash: z.string().min(64).max(64),
