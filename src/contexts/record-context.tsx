@@ -1203,12 +1203,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const createOperationLock = async (recordId: number, operationName: string): Promise<boolean> => {
     const operationsApi = getOperationsApiClient();
     
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
     // Enforce 1-operation-per-record lock: do not create if another active op exists
     const existing = await operationsApi.get({ recordId }); // one lock for record - nevermind which operation
     if (
       'data' in existing &&
       Array.isArray(existing.data) &&
-      existing.data.some(op => !op.operationFinished && !op.operationErrored)
+      existing.data.some(op => !op.operationFinished && !op.operationErrored && new Date(op.operationLastStep || '') > twoMinutesAgo)
     ) {
       console.warn('Active operation already exists for record – lock not created:', recordId);
       return false; // another lock already protects the record
