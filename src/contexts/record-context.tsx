@@ -1153,7 +1153,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Shared helper to check for ongoing operations for a specific record
   const checkOngoingOperation = async (recordId: number, operationName?: string) => {
     const operationsApi = getOperationsApiClient();
-    const opRes = await operationsApi.get({ recordId, operationName });
+    const opRes = await operationsApi.get({ recordId, operationName }); // one operation per record - nevermind which operation
     
     if ('data' in opRes && Array.isArray(opRes.data) && opRes.data.length > 0) {
       const ongoingOp = opRes.data[0];
@@ -1204,7 +1204,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     const operationsApi = getOperationsApiClient();
     
     // Enforce 1-operation-per-record lock: do not create if another active op exists
-    const existing = await operationsApi.get({ recordId });
+    const existing = await operationsApi.get({ recordId }); // one lock for record - nevermind which operation
     if (
       'data' in existing &&
       Array.isArray(existing.data) &&
@@ -2041,7 +2041,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         
         if (recordIdsWithProgress.length > 0) {
           // Fetch operations for all records showing progress
-          const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress });
+          const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress }); // return most recent operation for each record
           
           if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
             const recentFinishedOperations = clearFinishedOperations(operationsResponse.data);

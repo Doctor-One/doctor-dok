@@ -36,7 +36,6 @@ export default class ServerOperationsRepository extends BaseRepository<Operation
         if (query.id !== undefined) {
             existingOperation = db.select().from(operations).where(eq(operations.id, Number(query.id))).get() as OperationDTO;
         } else if (query.recordId !== undefined) {
-            console.log('upsert', query);
             if (query.operationName !== undefined) {
                 existingOperation = db.select().from(operations).where(and(eq(operations.recordId, Number(query.recordId)), eq(operations.operationName, query.operationName))).get() as OperationDTO;
             } else {
