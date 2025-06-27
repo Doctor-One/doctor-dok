@@ -89,7 +89,7 @@ export class ApiClient {
             refreshToken: this.dbContext.refreshToken
           })
           if((refreshResult)?.success) {
-            console.log('Refresh token success', this.dbContext?.accessToken);
+            console.log('Refresh token success', refreshResult.accessToken, refreshResult.serverCommunicationKey);
             return this.getArrayBuffer(endpoint, refreshResult.accessToken, temporaryKeyGenerator, refreshResult.serverCommunicationKey);
           } else {
             this.dbContext?.logout();
@@ -186,7 +186,7 @@ export class ApiClient {
             refreshToken: this.dbContext.refreshToken
           })
           if((refreshResult)?.success) {
-            console.log('Refresh token success', this.dbContext?.accessToken, this.dbContext?.serverCommunicationKey);
+            console.log('Refresh token success', refreshResult.accessToken, refreshResult.serverCommunicationKey);
             return this.request(endpoint, method, encryptionSettings, body, formData, refreshResult.accessToken, refreshResult.serverCommunicationKey);
           } else {
             this.dbContext?.logout();
