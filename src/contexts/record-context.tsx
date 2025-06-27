@@ -2008,6 +2008,15 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       
       if (lastUpdateResponse.status === 200 && 'data' in lastUpdateResponse) {
         const serverLastUpdate = lastUpdateResponse.data.lastUpdateDate;
+        const serverRecordCount = lastUpdateResponse.data.recordCount;
+
+        // If record count changed since last full refresh, force full refresh
+        if (serverRecordCount !== lastRecordCountRef.current) {
+          console.log('Record count changed from', lastRecordCountRef.current, 'to', serverRecordCount, '- performing full refresh');
+          await listRecords(forFolder);
+          lastRecordCountRef.current = serverRecordCount;
+          return serverLastUpdate;
+        }
         
         // Check if server data is newer than our last refresh
         if (!lastRefreshed || (serverLastUpdate && new Date(serverLastUpdate) > lastRefreshed)) {
