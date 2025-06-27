@@ -224,6 +224,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const dbContextRef = useRef<DatabaseContextType | null>(null);
   const lastListRecordsExecutionTimeRef = useRef<number>(0); // Store execution time in milliseconds
+  const lastRecordCountRef = useRef<number>(0);
 
 
   useEffect(() => { // filter records when tags change
@@ -1214,6 +1215,19 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       console.warn('Active operation already exists for record – lock not created:', recordId);
       return false; // another lock already protects the record
     }
+
+    if(folderContext?.currentFolder) {
+      const apiClient = await setupApiClient(config);
+      const checkRecordExists = await apiClient.getPartial({ folderId: folderContext?.currentFolder?.id || 0, recordIds: [recordId] }); // if record was deleted in another process we cannot lock in
+
+      if(checkRecordExists.length === 0) {
+        console.warn('Record was deleted in another process – lock not created:', recordId);
+        await checkAndRefreshRecords(folderContext?.currentFolder, true); // refresh the record list to see if the record is still there
+        return false; // another lock already protects the record
+      }
+    }
+
+
     
     await operationsApi.create({
       id: undefined,

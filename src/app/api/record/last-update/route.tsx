@@ -19,7 +19,8 @@ export async function GET(request: NextRequest, response: NextResponse) {
             message: "Last update info retrieved successfully",
             data: { 
                 lastUpdateDate: lastUpdateInfo?.updatedAt || null,
-                recordId: lastUpdateInfo?.recordId || null
+                recordId: lastUpdateInfo?.recordId || null,
+                recordCount: lastUpdateInfo?.recordCount || 0
             },
             status: 200
         });
