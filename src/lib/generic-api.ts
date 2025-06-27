@@ -176,8 +176,14 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
 
             const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey, keyLocatorHash);
 
-            const keyACL = (authResult as KeyDTO).acl ?? null;
-            const aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
+            let aclDTO: KeyACLDTO | null = null;
+            try {
+                const keyACL = (authResult as KeyDTO).acl ?? null;
+                aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
+            } catch (e) {
+                console.error('Error parsing Key ACL:', e);
+                throw new Error('Invalid Key ACL format');
+            }
             return {
                 databaseIdHash: destDatabaseIdHash,
                 keyHash: destKeyHash,
