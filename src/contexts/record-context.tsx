@@ -800,8 +800,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
 
   // Helper function to clear finished operations from operation progress state
   const clearFinishedOperations = (operations: any[]) => {
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
     const finishedOperations = operations.filter(op => 
-      (op.operationFinished || op.operationErrored) && 
+      (op.operationFinished || op.operationErrored || new Date(op.operationLastStep || '') < twoMinutesAgo) && 
       op.operationLastStep
     );
     
@@ -1158,9 +1159,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     if ('data' in opRes && Array.isArray(opRes.data) && opRes.data.length > 0) {
       const ongoingOp = opRes.data[0];
-      
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
       // Check if operation is finished or errored - if so, don't consider it ongoing
-      if (ongoingOp.operationFinished || ongoingOp.operationErrored || new Date(ongoingOp.operationLastStep || '') < new Date(Date.now() - 2 * 60 * 1000)) { // if no response for more than 2 minutes, consider it finished
+      if (ongoingOp.operationFinished || ongoingOp.operationErrored || new Date(ongoingOp.operationLastStep || '') < twoMinutesAgo) { // if no response for more than 2 minutes, consider it finished
         console.log('Operation is finished or errored, not ongoing:', recordId, 'finished:', ongoingOp.operationFinished, 'errored:', ongoingOp.operationErrored);
         return {
           hasOngoingOperation: false,
