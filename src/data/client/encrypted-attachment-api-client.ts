@@ -42,8 +42,8 @@ export class EncryptedAttachmentApiClient extends ApiClient {
       return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined);
     }
 
-    async getDecryptedServerSide(attachment: EncryptedAttachmentDTO, temporaryServerKey: KeyDTO & { encryptedKey: string }): Promise<ArrayBuffer | undefined | null> { // unsafe - as it passes the encryption key to the server
-      return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined, temporaryServerKey);
+    async getDecryptedServerSide(attachment: EncryptedAttachmentDTO, temporaryKeyGenerator:((dbContext: DatabaseContextType, saasContext: SaaSContextType | null, repeatedRequestAccessToken: string, repeatedServerCommunicationKey: string) => Promise<KeyDTO & { encryptedKey: string }>) | null ): Promise<ArrayBuffer | undefined | null> { // unsafe - as it passes the encryption key to the server
+      return this.getArrayBuffer('/api/encrypted-attachment/' + attachment.storageKey, undefined, temporaryKeyGenerator);
     }
 
 

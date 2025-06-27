@@ -944,7 +944,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     console.log('Download attachment', attachmentDTO);
 
     const client = await setupAttachmentsApiClient(config);
-    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO, await temporaryServerEncryptionKey(dbContextRef.current!, saasContext)) : await client.get(attachmentDTO);    // decrypt on server side if needed
+    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO, (dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey) =>  temporaryServerEncryptionKey(dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey)) : await client.get(attachmentDTO);    // decrypt on server side if needed
 
     if (type === AttachmentFormat.blobUrl) {
       const blob = new Blob([arrayBufferData], { type: attachmentDTO.mimeType + ";charset=utf-8" });
@@ -1023,7 +1023,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             console.log('Converting PDF to images server-side');
             const apiClient = new PdfConversionApiClient('', dbContext, saasContext);
             const result = await apiClient.convertPdf({
-              temporaryServerKey: await temporaryServerEncryptionKey(dbContextRef.current!, saasContext),
+              temporaryKeyGenerator: (dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey) =>  temporaryServerEncryptionKey(dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey),
               storageKey: ea.storageKey,
               conversion_config: { image_format: 'image/jpeg', height: (process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT ? parseFloat(process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT) : 3200)   /*, scale: process.env.NEXT_PUBLIC_PDF_SCALE ? parseFloat(process.env.NEXT_PUBLIC_PDF_SCALE) : 0.9 }*/ }
             });
