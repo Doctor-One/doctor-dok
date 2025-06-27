@@ -3,17 +3,18 @@ import { EncryptionUtils } from "@/lib/crypto";
 import { getErrorMessage } from "@/lib/utils";
 import { AuthorizedRequestContext, authorizeRequestContext, genericDELETE} from "@/lib/generic-api";
 import { StorageService } from "@/lib/storage-service";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { KeyAuthorizationZone } from "@/data/dto";
 
 export const dynamic = 'force-dynamic' // defaults to auto
 
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }, response: NextResponse) {
 
     let requestContext: AuthorizedRequestContext | null = null;
 
     try {
-        requestContext = await authorizeRequestContext(request);
+        requestContext = await authorizeRequestContext(request, response, KeyAuthorizationZone.Enclave);
         const storageService = new StorageService(requestContext.databaseIdHash);
         const attachmentRepository = new ServerEncryptedAttachmentRepository(requestContext.databaseIdHash);
 

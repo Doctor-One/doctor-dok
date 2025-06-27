@@ -30,6 +30,11 @@ export enum KeyAuthorizationZone {
   Enclave = 'enclave'
 }
 
+export enum AuthorizationUrlZones {
+  Enclave = '/enclave',
+  Api = '/api'
+}
+
 export const keyDTOSchema = z.object({
   displayName: z.string().min(1),
   keyLocatorHash: z.string().min(64).max(64),

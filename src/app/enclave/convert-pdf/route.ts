@@ -7,13 +7,14 @@ import { rmdirSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { deleteTemporaryServerKey } from '@/data/server/server-key-helpers';
+import { KeyAuthorizationZone } from '@/data/dto';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest, response: NextResponse) {
   let tempDir: string = '';
   let context: AuthorizedRequestContext | null = null;
   try {
 
-    context = await authorizeRequestContext(request); // we need to authorize the request to get the temporary server key
+    context = await authorizeRequestContext(request, response, KeyAuthorizationZone.Enclave); // we need to authorize the request to get the temporary server key
     const storageService = new StorageService(context.databaseIdHash);
     tempDir = join(storageService.getTempDir(), nanoid());
     

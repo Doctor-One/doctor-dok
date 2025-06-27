@@ -12,7 +12,7 @@ import { ApiError } from "@/data/dto";
 import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
 import { otpManager } from "./otp-manager";
 
-const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */});
+const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */ });
 
 export type ApiResult = {
     message: string;
@@ -22,7 +22,7 @@ export type ApiResult = {
     status: 200 | 400 | 500;
 }
 
-export type AuthorizedRequestContext = { 
+export type AuthorizedRequestContext = {
     databaseIdHash: string;
     keyHash: string;
     keyLocatorHash: string;
@@ -35,15 +35,15 @@ export type AuthorizedRequestContext = {
 }
 
 export type AuthorizedSaaSContext = {
-    saasContex: SaaSDTO|null
+    saasContex: SaaSDTO | null
     isSaasMode: boolean
     hasAccess: boolean;
     error?: string;
-    apiClient: PlatformApiClient|null
+    apiClient: PlatformApiClient | null
 }
 
 export async function authorizeSaasContext(request: NextRequest, forceNoCache: boolean = false): Promise<AuthorizedSaaSContext> {
-    if(!process.env.SAAS_PLATFORM_URL) {
+    if (!process.env.SAAS_PLATFORM_URL) {
         return {
             saasContex: null,
             hasAccess: true,
@@ -51,18 +51,18 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
             apiClient: null
         }
     } else {
-        
+
         const useCache = forceNoCache ? false : (request.nextUrl.searchParams.get('useCache') === 'false' ? false : true);
         const saasToken = request.headers.get('saas-token') !== null ? request.headers.get('saas-token') : request.nextUrl.searchParams.get('saasToken');
         const databaseIdHash = request.headers.get('database-id-hash') !== null ? request.headers.get('database-id-hash') : request.nextUrl.searchParams.get('databaseIdHash');
         if (!saasToken && !databaseIdHash) {
-             return {
-                 saasContex: null,
-                 isSaasMode: false,
-                 hasAccess: false,
-                 apiClient: null,
-                 error: 'No SaaS Token / Database Id Hash provided. Please register your account / apply for beta tests on official landing page.'
-            }            
+            return {
+                saasContex: null,
+                isSaasMode: false,
+                hasAccess: false,
+                apiClient: null,
+                error: 'No SaaS Token / Database Id Hash provided. Please register your account / apply for beta tests on official landing page.'
+            }
         }
         const resp = useCache ? saasCtxCache.get(saasToken ?? '' + databaseIdHash) : null;
         if (!useCache) {
@@ -77,7 +77,7 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
             const client = new PlatformApiClient(saasToken ?? '');
             try {
                 const response = await client.account({ databaseIdHash, apiKey: saasToken });
-                if(response.status !== 200) {
+                if (response.status !== 200) {
                     const resp = {
                         saasContex: null,
                         isSaasMode: false,
@@ -121,9 +121,7 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
     }
 }
 
-export async function getTemporaryPassedMasterKeyFromRequest(request: NextRequest, encryptedMasterKey: string, keyLocatorHash: string): Promise<{masterKey: string | null, encryptionKey: string | null}> {
-    let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
-
+export async function getTemporaryPassedMasterKeyFromRequest(timeBasedEncryptionKey: string, encryptedMasterKey: string, keyLocatorHash: string): Promise<{ masterKey: string | null, encryptionKey: string | null }> {
     let masterKey = null;
     let encryptionKey = null;
     if (timeBasedEncryptionKey) {
@@ -132,7 +130,7 @@ export async function getTemporaryPassedMasterKeyFromRequest(request: NextReques
             console.log(`No OTP found for keyLocatorHash: ${keyLocatorHash}, cannot decrypt`);
             return { masterKey: null, encryptionKey: null };
         }
-        
+
         const keyEncryptionTools = new EncryptionUtils(otp); // should be the same as the one used to encrypt the data
         encryptionKey = await keyEncryptionTools.decrypt(timeBasedEncryptionKey);
 
@@ -140,72 +138,111 @@ export async function getTemporaryPassedMasterKeyFromRequest(request: NextReques
         masterKey = await masterKeyEncryptionTools.decrypt(encryptedMasterKey);
     }
 
-    return {masterKey, encryptionKey};
+    return { masterKey, encryptionKey };
 }
 
-export async function authorizeRequestContext(request: NextRequest, response?: NextResponse): Promise<AuthorizedRequestContext> {
+
+async function prepareAuthorizedRequestContext(authResult: KeyDTO, timeBasedEncryptionKey: string | null = null): Promise<AuthorizedRequestContext> {
+
+    const { masterKey, encryptionKey } = timeBasedEncryptionKey ? await getTemporaryPassedMasterKeyFromRequest(timeBasedEncryptionKey, (authResult as KeyDTO).encryptedMasterKey, authResult.keyLocatorHash) : { masterKey: null, encryptionKey: null };
+
+    let aclDTO: KeyACLDTO | null = null;
+    try {
+        const keyACL = (authResult as KeyDTO).acl ?? null;
+        aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
+    } catch (e) {
+        console.error('Error parsing Key ACL:', e);
+        throw new Error('Invalid Key ACL format');
+    }
+    return {
+        databaseIdHash: authResult.databaseIdHash,
+        keyHash: authResult.keyHash,
+        keyLocatorHash: authResult.keyLocatorHash,
+        acl: aclDTO as KeyACLDTO,
+        extra: (authResult as KeyDTO).extra,
+        masterKey: masterKey,
+        encryptionKey: encryptionKey,
+        serverCommunicationKey: timeBasedEncryptionKey ? timeBasedEncryptionKey : null, // if timeBasedEncryptionKey is provided, it is used as server communication key
+        deleteTemporaryServerKey: () => aclDTO?.role === KeyAuthorizationZone.Enclave ? deleteTemporaryServerKey({ keyLocatorHash: authResult.keyLocatorHash, keyHash: authResult.keyHash, databaseIdHash: authResult.databaseIdHash }) : new Promise((resolve) => resolve(false)) // only allow deletion of temporary keys
+    }
+}
+
+export async function authorizeRequestContext(request: NextRequest, response?: NextResponse, authorizationZone: KeyAuthorizationZone = KeyAuthorizationZone.Standard): Promise<AuthorizedRequestContext> {
     // Try to get token from Authorization header first, then from query params
     const authorizationHeader = request.headers.get('Authorization');
     let jwtToken = authorizationHeader?.replace('Bearer ', '');
-    let keyLocatorHash = request.headers.get('key-locator-hash') !== null ? request.headers.get('key-locator-hash') : request.nextUrl.searchParams.get('klh'); // we let the user to override the key data from the JWT token to allow for server-side decryption
-    let keyHash = request.headers.get('key-hash') !== null ? request.headers.get('key-hash') : request.nextUrl.searchParams.get('kh');
-    let databaseIdHash = request.headers.get('database-id-hash') !== null ? request.headers.get('database-id-hash') : request.nextUrl.searchParams.get('dbid');
 
-    // If not found in header, try query params
-    if (!jwtToken) {
-        jwtToken = request.nextUrl.searchParams.get('token') || undefined;
-    }
+    if (authorizationZone === KeyAuthorizationZone.Enclave) { // security enclave - use temporary key for authorization
 
-    if (jwtToken) {
-        const decoded = await jwtVerify(jwtToken as string, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
-
-        const destDatabaseIdHash = databaseIdHash ? databaseIdHash : decoded.payload.databaseIdHash as string;
-        const destKeyHash = keyHash ? keyHash : decoded.payload.keyHash as string;
-        const destKeyLocatorHash = keyLocatorHash ? keyLocatorHash : decoded.payload.keyLocatorHash as string;
-        
+        let { databaseIdHash, keyHash, keyLocatorHash, timeBasedEncryptionKey } = getEnclaveRequestAuthorization(request);
         const authResult = await authorizeKey({
-            databaseIdHash: destDatabaseIdHash,
-            keyHash: destKeyHash,
-            keyLocatorHash: destKeyLocatorHash
+            databaseIdHash: databaseIdHash as string,
+            keyHash: keyHash as string,
+            keyLocatorHash: keyLocatorHash as string
         });
-        if(!authResult) {
+
+        if (!authResult) {
             NextResponse.json({ message: 'Unauthorized', status: 401 });
             throw new Error('Unauthorized. Wrong Key.');
         } else {
-            const keyLocatorHash = decoded.payload.keyLocatorHash as string;
-
-            const {masterKey, encryptionKey} = await getTemporaryPassedMasterKeyFromRequest(request, (authResult as KeyDTO).encryptedMasterKey, keyLocatorHash);
-
-            let aclDTO: KeyACLDTO | null = null;
-            try {
-                const keyACL = (authResult as KeyDTO).acl ?? null;
-                aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
-            } catch (e) {
-                console.error('Error parsing Key ACL:', e);
-                throw new Error('Invalid Key ACL format');
-            }
-            return {
-                databaseIdHash: destDatabaseIdHash,
-                keyHash: destKeyHash,
-                keyLocatorHash: destKeyLocatorHash,
-                acl: aclDTO as KeyACLDTO,
-                extra: (authResult as KeyDTO).extra,
-                masterKey: masterKey,
-                encryptionKey: encryptionKey,
-                serverCommunicationKey: otpManager.getOTP(keyLocatorHash),
-                deleteTemporaryServerKey: () => aclDTO?.role === KeyAuthorizationZone.Enclave ? deleteTemporaryServerKey({ keyLocatorHash: destKeyLocatorHash, keyHash: destKeyHash, databaseIdHash: destDatabaseIdHash }) : new Promise((resolve) => resolve(false)) // only allow deletion of temporary keys
-            }
+            return prepareAuthorizedRequestContext(authResult as KeyDTO, timeBasedEncryptionKey); // add temporary key if available
         }
+
     } else {
-        throw new Error('Unauthorized. No Token');
+
+        if (!jwtToken) {
+            jwtToken = request.nextUrl.searchParams.get('token') || undefined;
+        }
+
+        if (jwtToken) {
+            const decoded = await jwtVerify(jwtToken as string, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
+
+            const authResult = await authorizeKey({
+                databaseIdHash: decoded.payload.databaseIdHash as string,
+                keyHash: decoded.payload.keyHash as string,
+                keyLocatorHash: decoded.payload.keyLocatorHash as string
+            });
+
+            if (!authResult) {
+                NextResponse.json({ message: 'Unauthorized', status: 401 });
+                throw new Error('Unauthorized. Wrong Key.');
+            } else {
+                return prepareAuthorizedRequestContext(authResult as KeyDTO, null); // no temporary key in standard zone
+            }
+        } else {
+            NextResponse.json({ message: 'Unauthorized', status: 401 });
+            throw new Error('Unauthorized. No Token');
+        }
     }
 }
 
-export async function genericPUT<T extends { [key:string]: any }>(inputObject: any, schema: { safeParse: (a0:any) => { success: true; data: T; } | { success: false; error: ZodError; } }, repo: BaseRepository<T>, identityKey: string): Promise<ApiResult> {
+export function getEnclaveRequestAuthorization(request: NextRequest) {
+    try {
+
+        if(!request.url.includes('enclave')) {
+
+        let keyLocatorHash = request.headers.get('key-locator-hash') !== null ? request.headers.get('key-locator-hash') : request.nextUrl.searchParams.get('klh'); // we let the user to override the key data from the JWT token to allow for server-side decryption
+        let keyHash = request.headers.get('key-hash') !== null ? request.headers.get('key-hash') : request.nextUrl.searchParams.get('kh');
+        let databaseIdHash = request.headers.get('database-id-hash') !== null ? request.headers.get('database-id-hash') : request.nextUrl.searchParams.get('dbid');
+        let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
+
+
+        if (!keyLocatorHash || !keyHash || !databaseIdHash || !timeBasedEncryptionKey) {
+            throw new Error('Missing required parameters: keyLocatorHash, keyHash, or databaseIdHash, timeBasedEncryptionKey');
+        }
+
+        return { databaseIdHash, keyHash, keyLocatorHash, timeBasedEncryptionKey };
+    } catch (e) {
+        console.error('Error parsing enclave request authorization:', getErrorMessage(e));
+        throw new Error('Invalid enclave request authorization format: ' + getErrorMessage(e));    
+    }
+}
+
+export async function genericPUT<T extends { [key: string]: any }>(inputObject: any, schema: { safeParse: (a0: any) => { success: true; data: T; } | { success: false; error: ZodError; } }, repo: BaseRepository<T>, identityKey: string): Promise<ApiResult> {
     try {
         const validationResult = schema.safeParse(inputObject); // validation
         if (validationResult.success === true) {
-            const updatedValues:T = validationResult.data as T;
+            const updatedValues: T = validationResult.data as T;
             const upsertedData = await repo.upsert({ [identityKey]: updatedValues[identityKey] }, updatedValues)
 
             return {
@@ -217,7 +254,7 @@ export async function genericPUT<T extends { [key:string]: any }>(inputObject: a
             return {
                 message: getZedErrorMessage(validationResult.error),
                 issues: validationResult.error.issues,
-                status: 400               
+                status: 400
             };
         }
     } catch (e) {
@@ -230,7 +267,7 @@ export async function genericPUT<T extends { [key:string]: any }>(inputObject: a
     }
 }
 
-export async function genericGET<T extends { [key:string]: any }>(request: NextRequest, repo: BaseRepository<T>, defaultLimit: number = -1, defaultOffset: number  = -1): Promise<T[]> {
+export async function genericGET<T extends { [key: string]: any }>(request: NextRequest, repo: BaseRepository<T>, defaultLimit: number = -1, defaultOffset: number = -1): Promise<T[]> {
     const filterObj: Record<string, string> = Object.fromEntries(request.nextUrl.searchParams.entries());
 
     let limit = defaultLimit;
@@ -246,9 +283,9 @@ export async function genericGET<T extends { [key:string]: any }>(request: NextR
 }
 
 
-export async function genericDELETE<T extends { [key:string]: any }>(request: NextRequest, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult>{
+export async function genericDELETE<T extends { [key: string]: any }>(request: NextRequest, repo: BaseRepository<T>, query: Record<string, string | number>): Promise<ApiResult> {
     try {
-        if(await repo.delete(query)) {
+        if (await repo.delete(query)) {
             return {
                 message: 'Data deleted successfully!',
                 status: 200
