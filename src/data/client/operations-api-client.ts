@@ -22,12 +22,13 @@ export class OperationsApiClient extends ApiClient {
     super(baseUrl, dbContext, saasContext, encryptionConfig);
   }
 
-  async get(params: { id?: number; recordId?: number; recordIds?: number[]; operationId?: string }): Promise<OperationResponse> {
+  async get(params: { id?: number; operationName?: string; recordId?: number; recordIds?: number[]; operationId?: string }): Promise<OperationResponse> {
     const search = new URLSearchParams();
     if (params.id !== undefined) search.append('id', String(params.id));
     if (params.recordId !== undefined) search.append('recordId', String(params.recordId));
     if (params.recordIds !== undefined) search.append('recordIds', params.recordIds.join(','));
     if (params.operationId !== undefined) search.append('operationId', params.operationId);
+    if (params.operationName !== undefined) search.append('operationName', params.operationName);
     return this.request<OperationResponse>(`/api/operations?${search.toString()}`, 'GET', { ecnryptedFields: [] }) as Promise<OperationResponse>;
   }
 

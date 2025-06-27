@@ -67,7 +67,7 @@ export default class ServerRecordRepository extends BaseRepository<RecordDTO> {
         return Promise.resolve(dbQuery.all() as RecordDTO[])
     }
 
-    async getLastUpdateDate(folderId: number): Promise<{ recordId: number; updatedAt: string } | null> {
+    async getLastUpdateDate(folderId: number): Promise<{ recordId: number | null; updatedAt: string | null; recordCount: number }> {
         const db = (await this.db());
         
         // Get the latest record update date
@@ -88,6 +88,8 @@ export default class ServerRecordRepository extends BaseRepository<RecordDTO> {
             .all() as { id: number }[];
         
         const recordIds = folderRecords.map(r => r.id);
+        
+        const recordCount = folderRecords.length;
         
         let latestOperationUpdate: { recordId: number; operationLastStep: string } | undefined;
         
@@ -113,34 +115,31 @@ export default class ServerRecordRepository extends BaseRepository<RecordDTO> {
             }
         }
         
-        // Compare dates and return the latest
+        let result: { recordId: number | null; updatedAt: string | null; recordCount: number } = { recordId: null, updatedAt: null, recordCount };
+        
         if (latestRecordUpdate && latestOperationUpdate) {
             const recordDate = new Date(latestRecordUpdate.updatedAt);
             const operationDate = new Date(latestOperationUpdate.operationLastStep);
             
             if (operationDate > recordDate) {
-                return { 
-                    recordId: latestOperationUpdate.recordId, 
-                    updatedAt: latestOperationUpdate.operationLastStep 
-                };
+                result.recordId = latestOperationUpdate.recordId;
+                result.updatedAt = latestOperationUpdate.operationLastStep;
+                return result;
             } else {
-                return { 
-                    recordId: latestRecordUpdate.id, 
-                    updatedAt: latestRecordUpdate.updatedAt 
-                };
+                result.recordId = latestRecordUpdate.id;
+                result.updatedAt = latestRecordUpdate.updatedAt;
+                return result;
             }
         } else if (latestRecordUpdate) {
-            return { 
-                recordId: latestRecordUpdate.id, 
-                updatedAt: latestRecordUpdate.updatedAt 
-            };
+            result.recordId = latestRecordUpdate.id;
+            result.updatedAt = latestRecordUpdate.updatedAt;
+            return result;
         } else if (latestOperationUpdate) {
-            return { 
-                recordId: latestOperationUpdate.recordId, 
-                updatedAt: latestOperationUpdate.operationLastStep 
-            };
+            result.recordId = latestOperationUpdate.recordId;
+            result.updatedAt = latestOperationUpdate.operationLastStep;
+            return result;
         }
         
-        return null;
+        return result;
     }
 }

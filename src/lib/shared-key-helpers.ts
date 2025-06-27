@@ -12,20 +12,22 @@ const argon2 = require("argon2-browser");
 // Helper function to encrypt the key for server communication
 export async function temporaryServerEncryptionKey(
     dbContext: DatabaseContextType,
-    saasContext: SaaSContextType | null
+    saasContext: SaaSContextType | null,
+    repeatedRequestAccessToken: string = '',
+    repeatedServerCommunicationKey: string = ''
   ): Promise<KeyDTO & {
     encryptedKey: string;
   }> {
   
     try {
-      const sharedKey = generateEncryptionKey();
+      const sharedKey = generateEncryptionKey(); // todo: support the situation we get 401 in addKeyHelper - JWT token is not valid for example in this situatopn we're not able to pass the new serverCommunicationKey up the stream
       const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: KeyAuthorizationZone.Enclave , features: ['*'] }, dbContext, saasContext, undefined, KeyAuthorizationZone.Enclave) as PutKeyResponse;
 
       if (generatedKey.status !== 200) {
         throw new Error(`Failed to generate temporary key: ${generatedKey.message}`);
       }
   
-      const keyEncryptionTools = new EncryptionUtils(dbContext.serverCommunicationKey);
+      const keyEncryptionTools = new EncryptionUtils(repeatedServerCommunicationKey ? repeatedServerCommunicationKey : dbContext.serverCommunicationKey);
       const encryptedKey = await keyEncryptionTools.encrypt(sharedKey);
       
       return {

@@ -22,7 +22,7 @@ export default function RecordsFilter({}) {
 
     const handleRefresh = async () => {
         if (folderContext?.currentFolder && recordContext?.checkAndRefreshRecords) {
-            await recordContext.checkAndRefreshRecords(folderContext.currentFolder, false);
+            await recordContext.checkAndRefreshRecords(folderContext.currentFolder, true);
         }
     };
 

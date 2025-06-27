@@ -6,7 +6,7 @@ import { KeyDTO } from '../dto';
 export type PdfConversionRequest = {
   pdfBase64?: string;
   storageKey?: string;
-  temporaryServerKey?: KeyDTO & { encryptedKey: string };
+  temporaryKeyGenerator?: ((dbContext: DatabaseContextType, saasContext: SaaSContextType | null, repeatedRequestAccessToken: string, repeatedServerCommunicationKey: string) => Promise<KeyDTO & { encryptedKey: string }>) | null,
   conversion_config?: {
     image_format?: string;
     height?: number;
@@ -28,7 +28,7 @@ export class PdfConversionApiClient extends ApiClient {
   }
 
   async convertPdf(request: PdfConversionRequest): Promise<PdfConversionResponse> {
-    const result = await this.request<PdfConversionResponse>('/enclave/convert-pdf', 'POST', { ecnryptedFields: [], temporaryServerKey: request.temporaryServerKey }, request);
+    const result = await this.request<PdfConversionResponse>('/enclave/convert-pdf', 'POST', { ecnryptedFields: [], temporaryKeyGenerator: request.temporaryKeyGenerator}, request);
     return Array.isArray(result) ? result[0] : result;
   }
 } 

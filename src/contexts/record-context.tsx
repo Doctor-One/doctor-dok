@@ -93,6 +93,12 @@ let autoTranslateAfterParse = new Set<number>();
 // Add this after autoTranslateAfterParse definition
 let recordsBeingTranslated = new Set<number>();
 
+// Track records currently being updated/deleted (exclusive mutations)
+let recordsBeingMutated = new Set<number>();
+
+// Track records deleted during the current session so we don't re-add them if server still returns them
+let locallyDeletedRecordIds = new Set<number>();
+
 // Parsing progress state: recordId -> { progress, progressOf, metadata, textDelta, pageDelta, history: [] }
 // We'll use a React state for this, so move it into the provider below.
 
@@ -218,6 +224,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const dbContextRef = useRef<DatabaseContextType | null>(null);
   const lastListRecordsExecutionTimeRef = useRef<number>(0); // Store execution time in milliseconds
+  const lastRecordCountRef = useRef<number>(0);
 
 
   useEffect(() => { // filter records when tags change
@@ -279,6 +286,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const updateRecord = async (record: Record): Promise<Record> => {
+    // Prevent concurrent modifications
+    if (typeof record.id === 'number') {
+      if (recordsBeingMutated.has(record.id)) {
+        console.warn('Record is already being mutated, skipping update:', record.id);
+        return record;
+      }
+      recordsBeingMutated.add(record.id);
+    }
+
+    // Pause auto-refresh during save to avoid race conditions
+    stopAutoRefresh();
+
     try {
       setOperationStatus(DataLoadingStatus.Loading);
       const client = await setupApiClient(config);
@@ -371,6 +390,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       toast.error('Error adding folder record');
       setOperationStatus(DataLoadingStatus.Error);
       return record;
+    } finally {
+      // Unlock and resume auto-refresh
+      if (typeof record.id === 'number') recordsBeingMutated.delete(record.id);
+      if (folderContext?.currentFolder) startAutoRefresh(folderContext.currentFolder);
     }
   };
 
@@ -499,37 +522,53 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const deleteRecord = async (record: Record) => {
-    const prClient = await setupApiClient(config);
-    const attClient = await setupAttachmentsApiClient(config);
-
-    // Check for preserved attachments
-    const preservedAttachmentsExtra = record.extra?.find(e => e.type === 'Preserved attachments')?.value;
-    const preservedAttachmentIds = typeof preservedAttachmentsExtra === 'string' ? preservedAttachmentsExtra.split(',').map(id => id.trim()) : [];
-
-    if (record.attachments.length > 0) {
-      for (const attachment of record.attachments) {
-        // Skip deletion if attachment is preserved
-        if (preservedAttachmentIds.includes(attachment.id?.toString() || '')) {
-          console.log('Skipping deletion of preserved attachment:', attachment.id);
-          continue;
+    try { 
+      if (typeof record.id === 'number') {
+        if (recordsBeingMutated.has(record.id)) {
+          console.warn('Record is already being mutated, skipping delete:', record.id);
+          return Promise.resolve(false);
         }
-        const result = await attClient.delete(attachment.toDTO());
-        if (result.status !== 200) {
-          toast.error('Error removing attachment: ' + attachment.displayName)
+        recordsBeingMutated.add(record.id);
+      }
+
+      stopAutoRefresh();
+
+      const prClient = await setupApiClient(config);
+      const attClient = await setupAttachmentsApiClient(config);
+
+      // Check for preserved attachments
+      const preservedAttachmentsExtra = record.extra?.find(e => e.type === 'Preserved attachments')?.value;
+      const preservedAttachmentIds = typeof preservedAttachmentsExtra === 'string' ? preservedAttachmentsExtra.split(',').map(id => id.trim()) : [];
+
+      if (record.attachments.length > 0) {
+        for (const attachment of record.attachments) {
+          // Skip deletion if attachment is preserved
+          if (preservedAttachmentIds.includes(attachment.id?.toString() || '')) {
+            console.log('Skipping deletion of preserved attachment:', attachment.id);
+            continue;
+          }
+          const result = await attClient.delete(attachment.toDTO());
+          if (result.status !== 200) {
+            toast.error('Error removing attachment: ' + attachment.displayName)
+          }
         }
       }
-    }
-    const result = await prClient.delete(record)
-    if (result.status !== 200) {
-      toast.error('Error removing folder record: ' + result.message)
-      return Promise.resolve(false);
-    } else {
-      toast.success('Folder record removed successfully!')
-      setRecords(prvRecords => prvRecords.filter((pr) => pr.id !== record.id));
-      if (dbContext) auditContext.record({ eventName: 'deleteRecord', recordLocator: JSON.stringify([{ recordIds: [record.id] }]) });
+      const result = await prClient.delete(record)
+      if (result.status !== 200) {
+        toast.error('Error removing folder record: ' + result.message)
+        if(folderContext?.currentFolder) checkAndRefreshRecords(folderContext?.currentFolder, true);
+        return Promise.resolve(false);
+      } else {
+        toast.success('Folder record removed successfully!')
+        setRecords(prvRecords => prvRecords.filter((pr) => pr.id !== record.id));
+        if (dbContext) auditContext.record({ eventName: 'deleteRecord', recordLocator: JSON.stringify([{ recordIds: [record.id] }]) });
 
-      //chatContext.setRecordsLoaded(false); // reload context next time        
-      return Promise.resolve(true);
+        //chatContext.setRecordsLoaded(false); // reload context next time        
+        return Promise.resolve(true);
+      }
+    } finally {
+      if (typeof record.id === 'number') recordsBeingMutated.delete(record.id);
+      if (folderContext?.currentFolder) startAutoRefresh(folderContext.currentFolder);
     }
   };
 
@@ -537,7 +576,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const processFetchedRecords = async (
     fetchedRecords: Record[], 
     updateAvailableTags: boolean = false,
-    executionTime: number
+    executionTime: number,
+    requestedRecordIds?: number[]
   ) => {
     // Only update available tags if requested (for full refresh)
     if (updateAvailableTags) {
@@ -561,8 +601,29 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     // This will also merge the fetched records with existing records and return the final merged list
     const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
     
+    // Filter out records that were locally deleted in this session
+    let mergedList = (recordsWithOperationStatus || []).filter(r => !(typeof r.id === 'number' && locallyDeletedRecordIds.has(r.id)));
+
+    // If this was a partial request with explicit recordIds, remove any records that were expected but not returned (they were likely deleted on another device)
+    if (updateAvailableTags) {
+      const fetchedIdSet = new Set(fetchedRecords.map(r => r.id));
+      mergedList = mergedList.filter(r => fetchedIdSet.has(r.id));
+    }
+
+    if (requestedRecordIds && requestedRecordIds.length > 0) {
+      const returnedIds = new Set(mergedList.map(r => r.id));
+      mergedList = mergedList.filter(r => !requestedRecordIds.includes(r.id as number) || returnedIds.has(r.id));
+
+      // Also remove from existing list any records that are missing
+      const missingIds = requestedRecordIds.filter(id => !returnedIds.has(id));
+      if (missingIds.length > 0) {
+        console.log('Removing records not returned by partial refresh (deleted remotely):', missingIds);
+        mergedList = mergedList.filter(r => !missingIds.includes(r.id as number));
+      }
+    }
+    
     // Set the final merged records in state
-    setRecords(recordsWithOperationStatus || []);
+    setRecords(mergedList);
     
     setLastRefreshed(new Date());
     setLoaderStatus(DataLoadingStatus.Success);
@@ -576,7 +637,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     lastListRecordsExecutionTimeRef.current = executionTime;
     console.log(`Records processing execution time: ${executionTime}ms`);
     
-    return recordsWithOperationStatus || [];
+    return mergedList;
   };
 
   const listRecords = async (forFolder: Folder) => {
@@ -617,7 +678,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
 
       const executionTime = Date.now() - startTime;
-      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime);
+      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime, recordIds);
     } catch (error) {
       // Calculate execution time even on error
       const executionTime = Date.now() - startTime;
@@ -785,7 +846,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         
         const recentOperations = response.data.filter(op => 
           op.operationLastStep && 
-          new Date(op.operationLastStep) > new Date(twoMinutesAgo) &&
           !op.operationFinished &&
           !op.operationErrored
         );
@@ -944,7 +1004,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     console.log('Download attachment', attachmentDTO);
 
     const client = await setupAttachmentsApiClient(config);
-    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO, await temporaryServerEncryptionKey(dbContextRef.current!, saasContext)) : await client.get(attachmentDTO);    // decrypt on server side if needed
+    const arrayBufferData = temporaryPassEncryptionKey ? await client.getDecryptedServerSide(attachmentDTO, (dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey) =>  temporaryServerEncryptionKey(dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey)) : await client.get(attachmentDTO);    // decrypt on server side if needed
 
     if (type === AttachmentFormat.blobUrl) {
       const blob = new Blob([arrayBufferData], { type: attachmentDTO.mimeType + ";charset=utf-8" });
@@ -1023,7 +1083,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             console.log('Converting PDF to images server-side');
             const apiClient = new PdfConversionApiClient('', dbContext, saasContext);
             const result = await apiClient.convertPdf({
-              temporaryServerKey: await temporaryServerEncryptionKey(dbContextRef.current!, saasContext),
+              temporaryKeyGenerator: (dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey) =>  temporaryServerEncryptionKey(dbContext, saasContext, repeatedRequestAccessToken, repeatedServerCommunicationKey),
               storageKey: ea.storageKey,
               conversion_config: { image_format: 'image/jpeg', height: (process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT ? parseFloat(process.env.NEXT_PUBLIC_PDF_MAX_HEIGHT) : 3200)   /*, scale: process.env.NEXT_PUBLIC_PDF_SCALE ? parseFloat(process.env.NEXT_PUBLIC_PDF_SCALE) : 0.9 }*/ }
             });
@@ -1094,7 +1154,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Shared helper to check for ongoing operations for a specific record
   const checkOngoingOperation = async (recordId: number, operationName?: string) => {
     const operationsApi = getOperationsApiClient();
-    const opRes = await operationsApi.get({ recordId });
+    const opRes = await operationsApi.get({ recordId, operationName }); // one operation per record - nevermind which operation
     
     if ('data' in opRes && Array.isArray(opRes.data) && opRes.data.length > 0) {
       const ongoingOp = opRes.data[0];
@@ -1141,8 +1201,34 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   // Helper to create an operation lock
-  const createOperationLock = async (recordId: number, operationName: string) => {
+  const createOperationLock = async (recordId: number, operationName: string): Promise<boolean> => {
     const operationsApi = getOperationsApiClient();
+    
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    // Enforce 1-operation-per-record lock: do not create if another active op exists
+    const existing = await operationsApi.get({ recordId }); // one lock for record - nevermind which operation
+    if (
+      'data' in existing &&
+      Array.isArray(existing.data) &&
+      existing.data.some(op => !op.operationFinished && !op.operationErrored && new Date(op.operationLastStep || '') > twoMinutesAgo)
+    ) {
+      console.warn('Active operation already exists for record – lock not created:', recordId);
+      return false; // another lock already protects the record
+    }
+
+    if(folderContext?.currentFolder) {
+      const apiClient = await setupApiClient(config);
+      const checkRecordExists = await apiClient.getPartial({ folderId: folderContext?.currentFolder?.id || 0, recordIds: [recordId] }); // if record was deleted in another process we cannot lock in
+
+      if(checkRecordExists.length === 0) {
+        console.warn('Record was deleted in another process – lock not created:', recordId);
+        await checkAndRefreshRecords(folderContext?.currentFolder, true); // refresh the record list to see if the record is still there
+        return false; // another lock already protects the record
+      }
+    }
+
+
+    
     await operationsApi.create({
       id: undefined,
       recordId: recordId,
@@ -1163,6 +1249,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationLastStepUserAgent: navigator.userAgent,
       operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null
     });
+    return true;
   };
 
   // Helper to finish an operation
@@ -1371,6 +1458,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           if (updatedRecord && currentRecord.postParseCallback) {
             await currentRecord.postParseCallback(updatedRecord);
           }
+
+          // Explicitly finish the operation successfully
+          if (currentRecord) {
+            await finishOperation(currentRecord.id!, RegisteredOperations.Parse);
+          }
+
           
           // Check if auto-translation should be triggered for this record
           if (currentRecord && autoTranslateAfterParse.has(currentRecord.id!)) {
@@ -1384,10 +1477,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             autoTranslateAfterParse.delete(currentRecord.id!);
           }
           
-          // Explicitly finish the operation successfully
-          if (currentRecord) {
-            await finishOperation(currentRecord.id!, RegisteredOperations.Parse);
-          }
         } catch (error) {
           console.error('Error processing record:', error);
           toast.error('Error processing record: ' + error);
@@ -1446,19 +1535,22 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     if (operationCheck.hasOngoingOperation) {
       if (operationCheck.isDifferentSession) {
-        // Operation is from different session, show message and return
-        await updateOperationProgress(newRecord, RegisteredOperations.Parse, true, 0, 0, 0, 0, { 
-          message: 'Parse process started on ' + operationCheck.operation?.operationStartedOnUserAgent + ' last data chunk received on ' + operationCheck.operation?.operationLastStep, 
-          processedOnDifferentDevice: true 
+        // Another session or a different operation is in progress – abort.
+        await updateOperationProgress(newRecord, RegisteredOperations.Parse, true, 0, 0, 0, 0, {
+          message: `${operationCheck.operation?.operationName || 'Operation'} started on ${operationCheck.operation?.operationStartedOnUserAgent} – last data chunk on ${operationCheck.operation?.operationLastStep}`,
+          processedOnDifferentDevice: operationCheck.isDifferentSession
         });
         return;
-      } else if (operationCheck.shouldResume) {
-        // Same session, operation can be resumed - continue to add to queue
-        console.log('Resuming existing parse operation for record:', newRecord.id);
       }
+      // Same session and same operation – resume
+      console.log('Resuming existing parse operation for record:', newRecord.id);
     } else {
-      // No ongoing operation, create a lock
-      await createOperationLock(newRecord.id, RegisteredOperations.Parse);
+      // No ongoing operation, try to create a lock – if it fails, abort.
+      const lockCreated = await createOperationLock(newRecord.id, RegisteredOperations.Parse);
+      if (!lockCreated) {
+        console.warn('Unable to create parse lock – aborting parse for record:', newRecord.id);
+        return;
+      }
     }
     
     if (!parseQueue.find(pr => pr.id === newRecord.id) && newRecord.attachments.length > 0) {
@@ -1705,15 +1797,53 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const translateRecord = async (record: Record, language: string = 'English') => {
-    // Check if this record is already being translated
+    // Prevent concurrent translations inside the same session
     if (typeof record.id === 'number' && recordsBeingTranslated.has(record.id)) {
-      console.log('Translation already in progress for record:', record.id, 'skipping');
+      console.log('Translation already in progress for record (local set):', record.id, 'skipping');
       return record;
-    }
+   } 
 
-    // Add record to the set of records being translated
+    // ---- Cross-session concurrency guard using operation locks ----
     if (typeof record.id === 'number') {
-      recordsBeingTranslated.add(record.id);
+      // Finally, mark this record as being translated in this session
+      recordsBeingTranslated.add(record.id);    
+
+      const opCheck = await checkOngoingOperation(record.id, RegisteredOperations.Translate);
+
+      if (opCheck.hasOngoingOperation) {
+        if (opCheck.isDifferentSession) {
+          // Another device/session is actively translating (<2 min since last update)
+          await updateOperationProgress(
+            record,
+            RegisteredOperations.Translate,
+            true,
+            0,
+            0,
+            0,
+            0,
+            {
+              message: `Translation process started on ${opCheck.operation?.operationStartedOnUserAgent} – last data chunk received on ${opCheck.operation?.operationLastStep}`,
+              processedOnDifferentDevice: true
+            },
+            null
+          );
+          recordsBeingTranslated.delete(record.id);     // unlock the record
+
+          return record; // Abort – let the other session finish
+        }
+        // Same session or stale lock (>2 min) – continue/resume below
+        console.log('Resuming translation for record:', record.id);
+      } else {
+        // No ongoing translation – attempt to create a lock.
+        const lockCreated = await createOperationLock(record.id, RegisteredOperations.Translate);
+        if (!lockCreated) {
+          console.warn('Unable to create translation lock – aborting for record:', record.id);
+          recordsBeingTranslated.delete(record.id);     // unlock the record
+
+          return record;
+        }
+      }
+
     }
 
     try {
@@ -1833,6 +1963,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       record = await updateRecord(record); // save changes to original record
       translatedRecord = await updateRecord(translatedRecord); // save changes to translated record
 
+      // Mark the operation as finished successfully
+      if (typeof record.id === 'number') {
+        await finishOperation(record.id, RegisteredOperations.Translate);
+      }
+
       setOperationStatus(DataLoadingStatus.Success);
       // End translation progress
       await updateOperationProgress(record, RegisteredOperations.Translate, false, pagesTokensProcessed, pagesTokensProcessed, pages.length, pages.length, null, null);
@@ -1842,6 +1977,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       setOperationStatus(DataLoadingStatus.Error);
       // End translation progress with error
       await updateOperationProgress(record, RegisteredOperations.Translate, false, 0, 0, 0, 0, null, error);
+      if (typeof record.id === 'number') {
+        await finishOperation(record.id, RegisteredOperations.Translate, error);
+      }
       console.error('Error translating record:', error);
       toast.error('Error translating record: ' + error);
       throw error;
@@ -1870,6 +2008,15 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       
       if (lastUpdateResponse.status === 200 && 'data' in lastUpdateResponse) {
         const serverLastUpdate = lastUpdateResponse.data.lastUpdateDate;
+        const serverRecordCount = lastUpdateResponse.data.recordCount;
+
+        // If record count changed since last full refresh, force full refresh
+        if (serverRecordCount !== lastRecordCountRef.current) {
+          console.log('Record count changed from', lastRecordCountRef.current, 'to', serverRecordCount, '- performing full refresh');
+          await listRecords(forFolder);
+          lastRecordCountRef.current = serverRecordCount;
+          return serverLastUpdate;
+        }
         
         // Check if server data is newer than our last refresh
         if (!lastRefreshed || (serverLastUpdate && new Date(serverLastUpdate) > lastRefreshed)) {
@@ -1918,7 +2065,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         
         if (recordIdsWithProgress.length > 0) {
           // Fetch operations for all records showing progress
-          const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress });
+          const operationsResponse = await operationsApi.get({ recordIds: recordIdsWithProgress }); // return most recent operation for each record
           
           if ('data' in operationsResponse && Array.isArray(operationsResponse.data)) {
             const recentFinishedOperations = clearFinishedOperations(operationsResponse.data);

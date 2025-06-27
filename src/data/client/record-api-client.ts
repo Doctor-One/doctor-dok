@@ -22,6 +22,7 @@ export type GetLastUpdateDateResponseSuccess = {
   data: { 
     lastUpdateDate: string | null;
     recordId: number | null;
+    recordCount: number;
   };
   status: 200;
 };

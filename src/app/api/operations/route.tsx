@@ -11,10 +11,12 @@ export async function GET(request: NextRequest, response: NextResponse) {
     const id = searchParams.get('id');
     const recordId = searchParams.get('recordId');
     const recordIds = searchParams.get('recordIds');
+    const operationName = searchParams.get('operationName');
     const operationId = searchParams.get('operationId');
     let filter: any = {};
     if (id) filter.id = id;
     if (recordId) filter.recordId = recordId;
+    if (operationName) filter.operationName = operationName;
     if (recordIds) filter.recordIds = recordIds.split(',').map(id => id.trim());
     if (operationId) filter.operationId = operationId;
     const data = await repo.findAll({ filter });
@@ -58,8 +60,9 @@ export async function PUT(request: NextRequest, response: NextResponse) {
         });
     }
     // Upsert by id, recordId, or operationId
-    const { id, recordId, operationId } = validationResult.data;
+    const { id, recordId, operationId, operationName } = validationResult.data;
     const query: any = {};
+    if (operationName !== undefined) query.operationName = operationName;
     if (id !== undefined) query.id = id;
     else if (recordId !== undefined) query.recordId = recordId;
     else if (operationId !== undefined) query.operationId = operationId;
