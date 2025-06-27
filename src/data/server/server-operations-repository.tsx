@@ -6,8 +6,28 @@ import { create } from "./generic-repository";
 
 export default class ServerOperationsRepository extends BaseRepository<OperationDTO> {
     async create(item: OperationDTO): Promise<OperationDTO> {
-        const db = (await this.db());
-        return create(item, operations, db); // generic implementation
+        const db = await this.db();
+
+        // Enforce single operation row per recordId (acts as a lock)
+        if (item.recordId !== undefined && item.recordId !== null) {
+            const existing = db
+                .select()
+                .from(operations)
+                .where(eq(operations.recordId, Number(item.recordId)))
+                .get() as OperationDTO | undefined;
+
+            if (existing) {
+                const updated = { ...existing, ...item } as OperationDTO;
+                db.update(operations)
+                    .set(updated)
+                    .where(eq(operations.id, Number(existing.id)))
+                    .run();
+                return Promise.resolve(updated);
+            }
+        }
+
+        // No existing operation for this record – insert new row
+        return create(item, operations, db);
     }
 
     async upsert(query: Record<string, any>, item: OperationDTO): Promise<OperationDTO> {

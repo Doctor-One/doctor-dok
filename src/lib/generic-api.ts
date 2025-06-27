@@ -207,7 +207,7 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
                 console.log('Key Hash Verification:', isTemporaryEncryptionKeyVerified);
 
                 if (!isTemporaryEncryptionKeyVerified) {
-                    NextResponse.json({ message: 'Unauthorized.', status: 403 });
+                    NextResponse.json({ message: 'Unauthorized.', status: 401 });
                     throw new AuthorizationError('Unauthorized. Temporary encryption key is wrong.'); // this usually means we've got the wrong communication key bc. jwt token and communication key got expired
                 }
 

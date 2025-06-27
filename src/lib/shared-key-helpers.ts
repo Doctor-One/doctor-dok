@@ -12,7 +12,9 @@ const argon2 = require("argon2-browser");
 // Helper function to encrypt the key for server communication
 export async function temporaryServerEncryptionKey(
     dbContext: DatabaseContextType,
-    saasContext: SaaSContextType | null
+    saasContext: SaaSContextType | null,
+    repeatedRequestAccessToken: string = '',
+    repeatedServerCommunicationKey: string = ''
   ): Promise<KeyDTO & {
     encryptedKey: string;
   }> {
@@ -25,7 +27,7 @@ export async function temporaryServerEncryptionKey(
         throw new Error(`Failed to generate temporary key: ${generatedKey.message}`);
       }
   
-      const keyEncryptionTools = new EncryptionUtils(dbContext.serverCommunicationKey);
+      const keyEncryptionTools = new EncryptionUtils(repeatedServerCommunicationKey ? repeatedServerCommunicationKey : dbContext.serverCommunicationKey);
       const encryptedKey = await keyEncryptionTools.encrypt(sharedKey);
       
       return {

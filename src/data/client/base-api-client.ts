@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils";
 import { ApiError } from "@/data/dto";
 import { PutKeyResponseSuccess } from "./key-api-client";
+import { temporaryServerEncryptionKey } from "@/lib/shared-key-helpers";
 
 export type ApiEncryptionConfig = {
   secretKey?: string;
@@ -43,7 +44,8 @@ export class ApiClient {
   public async getArrayBuffer(
     endpoint: string,
     repeatedRequestAccessToken = '',
-    temporaryKey: KeyDTO & { encryptedKey: string } | null = null
+    temporaryKey: KeyDTO & { encryptedKey: string } | null = null,
+    repeatedServerCommunicationKey: string = ''
   ): Promise<ArrayBuffer | null | undefined> {
     const headers: Record<string, string> = {};
 
@@ -52,6 +54,14 @@ export class ApiClient {
     }
 
     if(this.dbContext && temporaryKey) {
+
+      if (repeatedRequestAccessToken) { // refreshing JWT token
+        const newTemporaryKey = await temporaryServerEncryptionKey(this.dbContext, this.saasContext ?? null, repeatedRequestAccessToken, repeatedServerCommunicationKey);
+        if (newTemporaryKey) {
+          temporaryKey = newTemporaryKey;
+        }
+      }
+
       headers['Encryption-Key'] = temporaryKey.encryptedKey;
       headers['Key-Locator-Hash'] = temporaryKey.keyLocatorHash;
       headers['Key-Hash'] = temporaryKey.keyHash;
@@ -85,7 +95,7 @@ export class ApiClient {
           })
           if((refreshResult)?.success) {
             console.log('Refresh token success', this.dbContext?.accessToken);
-            return this.getArrayBuffer(endpoint, refreshResult.accessToken, temporaryKey);
+            return this.getArrayBuffer(endpoint, refreshResult.accessToken, temporaryKey, refreshResult.serverCommunicationKey);
           } else {
             this.dbContext?.logout();
             toast.error('Refresh token failed. Please try to log-in again.');
@@ -114,7 +124,8 @@ export class ApiClient {
     encryptionSettings?: DTOEncryptionSettings,
     body?: any,
     formData?: FormData,
-    repeatedRequestAccessToken:string = ''
+    repeatedRequestAccessToken:string = '',
+    repeatedServerCommunicationKey: string = ''
   ): Promise<T | T[]> {
     const headers: Record<string, string> = {};
 
@@ -126,7 +137,15 @@ export class ApiClient {
       headers['Database-Id-Hash'] = this.dbContext?.databaseHashId;
     }
 
-    if(this.dbContext && encryptionSettings?.temporaryServerKey) {
+    if(this.dbContext && encryptionSettings?.temporaryServerKey) { // todo in case we do have the repeatedRequestAccessToken we should generate a new temporary key
+
+      if (repeatedRequestAccessToken) { // refreshing JWT token
+        const newTemporaryKey = await temporaryServerEncryptionKey(this.dbContext, this.saasContext ?? null, repeatedRequestAccessToken, repeatedServerCommunicationKey);
+        if (newTemporaryKey) {
+          encryptionSettings.temporaryServerKey = newTemporaryKey;
+        }
+      }
+
       headers['Encryption-Key'] = encryptionSettings.temporaryServerKey.encryptedKey;
       headers['Key-Locator-Hash'] = encryptionSettings.temporaryServerKey.keyLocatorHash;
       headers['Key-Hash'] = encryptionSettings.temporaryServerKey.keyHash;
@@ -175,8 +194,8 @@ export class ApiClient {
             refreshToken: this.dbContext.refreshToken
           })
           if((refreshResult)?.success) {
-            console.log('Refresh token success', this.dbContext?.accessToken);
-            return this.request(endpoint, method, encryptionSettings, body, formData, refreshResult.accessToken);
+            console.log('Refresh token success', this.dbContext?.accessToken, this.dbContext?.serverCommunicationKey);
+            return this.request(endpoint, method, encryptionSettings, body, formData, refreshResult.accessToken, refreshResult.serverCommunicationKey);
           } else {
             this.dbContext?.logout();
             toast.error('Refresh token failed. Please try to log-in again.');

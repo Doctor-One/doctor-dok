@@ -28,6 +28,7 @@ export type RefreshDatabaseResult = {
     message: string;
     issues: ZodIssue[];
     accessToken?: string;
+    serverCommunicationKey?: string;
 }
 
 export type CreateDatabaseResult = {
@@ -212,6 +213,7 @@ export const DatabaseContextProvider: React.FC<PropsWithChildren> = ({ children 
             return {
                 success: true,
                 accessToken: (apiResponse as RefreshDbResponse).data.accessToken,
+                serverCommunicationKey: (apiResponse as RefreshDbResponse).data.serverCommunicationKey,
                 message: apiResponse.message,
                 issues: apiResponse.issues ? apiResponse.issues : []
             }

@@ -1141,8 +1141,20 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   };
 
   // Helper to create an operation lock
-  const createOperationLock = async (recordId: number, operationName: string) => {
+  const createOperationLock = async (recordId: number, operationName: string): Promise<boolean> => {
     const operationsApi = getOperationsApiClient();
+    
+    // Enforce 1-operation-per-record lock: do not create if another active op exists
+    const existing = await operationsApi.get({ recordId });
+    if (
+      'data' in existing &&
+      Array.isArray(existing.data) &&
+      existing.data.some(op => !op.operationFinished && !op.operationErrored)
+    ) {
+      console.warn('Active operation already exists for record – lock not created:', recordId);
+      return false; // another lock already protects the record
+    }
+    
     await operationsApi.create({
       id: undefined,
       recordId: recordId,
@@ -1163,6 +1175,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       operationLastStepUserAgent: navigator.userAgent,
       operationLastStepSessionId: dbContextRef.current?.authorizedSessionId || null
     });
+    return true;
   };
 
   // Helper to finish an operation
@@ -1445,20 +1458,23 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     const operationCheck = await checkOngoingOperation(newRecord.id, RegisteredOperations.Parse);
     
     if (operationCheck.hasOngoingOperation) {
-      if (operationCheck.isDifferentSession) {
-        // Operation is from different session, show message and return
-        await updateOperationProgress(newRecord, RegisteredOperations.Parse, true, 0, 0, 0, 0, { 
-          message: 'Parse process started on ' + operationCheck.operation?.operationStartedOnUserAgent + ' last data chunk received on ' + operationCheck.operation?.operationLastStep, 
-          processedOnDifferentDevice: true 
+      if (operationCheck.isDifferentSession || !operationCheck.shouldResume) {
+        // Another session or a different operation is in progress – abort.
+        await updateOperationProgress(newRecord, RegisteredOperations.Parse, true, 0, 0, 0, 0, {
+          message: `${operationCheck.operation?.operationName || 'Operation'} started on ${operationCheck.operation?.operationStartedOnUserAgent} – last data chunk on ${operationCheck.operation?.operationLastStep}`,
+          processedOnDifferentDevice: operationCheck.isDifferentSession
         });
         return;
-      } else if (operationCheck.shouldResume) {
-        // Same session, operation can be resumed - continue to add to queue
-        console.log('Resuming existing parse operation for record:', newRecord.id);
       }
+      // Same session and same operation – resume
+      console.log('Resuming existing parse operation for record:', newRecord.id);
     } else {
-      // No ongoing operation, create a lock
-      await createOperationLock(newRecord.id, RegisteredOperations.Parse);
+      // No ongoing operation, try to create a lock – if it fails, abort.
+      const lockCreated = await createOperationLock(newRecord.id, RegisteredOperations.Parse);
+      if (!lockCreated) {
+        console.warn('Unable to create parse lock – aborting parse for record:', newRecord.id);
+        return;
+      }
     }
     
     if (!parseQueue.find(pr => pr.id === newRecord.id) && newRecord.attachments.length > 0) {
@@ -1737,8 +1753,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         // Same session or stale lock (>2 min) – continue/resume below
         console.log('Resuming translation for record:', record.id);
       } else {
-        // No ongoing translation – create a lock so others will not start.
-        await createOperationLock(record.id, RegisteredOperations.Translate);
+        // No ongoing translation – attempt to create a lock.
+        const lockCreated = await createOperationLock(record.id, RegisteredOperations.Translate);
+        if (!lockCreated) {
+          console.warn('Unable to create translation lock – aborting for record:', record.id);
+          return record;
+        }
       }
 
       // Finally, mark this record as being translated in this session
