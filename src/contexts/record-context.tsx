@@ -1160,7 +1160,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const ongoingOp = opRes.data[0];
       
       // Check if operation is finished or errored - if so, don't consider it ongoing
-      if (ongoingOp.operationFinished || ongoingOp.operationErrored) {
+      if (ongoingOp.operationFinished || ongoingOp.operationErrored || new Date(ongoingOp.operationLastStep || '') < new Date(Date.now() - 2 * 60 * 1000)) { // if no response for more than 2 minutes, consider it finished
         console.log('Operation is finished or errored, not ongoing:', recordId, 'finished:', ongoingOp.operationFinished, 'errored:', ongoingOp.operationErrored);
         return {
           hasOngoingOperation: false,
