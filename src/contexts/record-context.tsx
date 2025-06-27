@@ -828,7 +828,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const checkRecentOperations = async (records: Record[]) => {
     try {
       const operationsApi = getOperationsApiClient();
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
       
       // Get record IDs that are currently in the list
       const recordIds = records.map(record => record.id).filter(id => id !== undefined) as number[];
@@ -848,7 +848,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         const recentOperations = response.data.filter(op => 
           op.operationLastStep && 
           !op.operationFinished &&
-          !op.operationErrored
+          !op.operationErrored &&
+          new Date(op.operationLastStep || '') > twoMinutesAgo
         );
         
         const recordIdsWithRecentOperations = new Set(recentOperations.map(op => op.recordId));
