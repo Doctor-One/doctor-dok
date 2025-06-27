@@ -60,8 +60,9 @@ export async function PUT(request: NextRequest, response: NextResponse) {
         });
     }
     // Upsert by id, recordId, or operationId
-    const { id, recordId, operationId } = validationResult.data;
+    const { id, recordId, operationId, operationName } = validationResult.data;
     const query: any = {};
+    if (operationName !== undefined) query.operationName = operationName;
     if (id !== undefined) query.id = id;
     else if (recordId !== undefined) query.recordId = recordId;
     else if (operationId !== undefined) query.operationId = operationId;
