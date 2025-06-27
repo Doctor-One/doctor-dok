@@ -18,7 +18,7 @@ export async function temporaryServerEncryptionKey(
   }> {
   
     try {
-      const sharedKey = generateEncryptionKey();
+      const sharedKey = generateEncryptionKey(); // todo: support the situation we get 401 in addKeyHelper - JWT token is not valid for example in this situatopn we're not able to pass the new serverCommunicationKey up the stream
       const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: KeyAuthorizationZone.Enclave , features: ['*'] }, dbContext, saasContext, undefined, KeyAuthorizationZone.Enclave) as PutKeyResponse;
 
       if (generatedKey.status !== 200) {

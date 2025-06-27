@@ -1705,14 +1705,43 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const translateRecord = async (record: Record, language: string = 'English') => {
-    // Check if this record is already being translated
+    // Prevent concurrent translations inside the same session
     if (typeof record.id === 'number' && recordsBeingTranslated.has(record.id)) {
-      console.log('Translation already in progress for record:', record.id, 'skipping');
+      console.log('Translation already in progress for record (local set):', record.id, 'skipping');
       return record;
     }
 
-    // Add record to the set of records being translated
+    // ---- Cross-session concurrency guard using operation locks ----
     if (typeof record.id === 'number') {
+      const opCheck = await checkOngoingOperation(record.id, RegisteredOperations.Translate);
+
+      if (opCheck.hasOngoingOperation) {
+        if (opCheck.isDifferentSession) {
+          // Another device/session is actively translating (<2 min since last update)
+          await updateOperationProgress(
+            record,
+            RegisteredOperations.Translate,
+            true,
+            0,
+            0,
+            0,
+            0,
+            {
+              message: `Translation process started on ${opCheck.operation?.operationStartedOnUserAgent} – last data chunk received on ${opCheck.operation?.operationLastStep}`,
+              processedOnDifferentDevice: true
+            },
+            null
+          );
+          return record; // Abort – let the other session finish
+        }
+        // Same session or stale lock (>2 min) – continue/resume below
+        console.log('Resuming translation for record:', record.id);
+      } else {
+        // No ongoing translation – create a lock so others will not start.
+        await createOperationLock(record.id, RegisteredOperations.Translate);
+      }
+
+      // Finally, mark this record as being translated in this session
       recordsBeingTranslated.add(record.id);
     }
 
@@ -1833,6 +1862,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       record = await updateRecord(record); // save changes to original record
       translatedRecord = await updateRecord(translatedRecord); // save changes to translated record
 
+      // Mark the operation as finished successfully
+      if (typeof record.id === 'number') {
+        await finishOperation(record.id, RegisteredOperations.Translate);
+      }
+
       setOperationStatus(DataLoadingStatus.Success);
       // End translation progress
       await updateOperationProgress(record, RegisteredOperations.Translate, false, pagesTokensProcessed, pagesTokensProcessed, pages.length, pages.length, null, null);
@@ -1842,6 +1876,9 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       setOperationStatus(DataLoadingStatus.Error);
       // End translation progress with error
       await updateOperationProgress(record, RegisteredOperations.Translate, false, 0, 0, 0, 0, null, error);
+      if (typeof record.id === 'number') {
+        await finishOperation(record.id, RegisteredOperations.Translate, error);
+      }
       console.error('Error translating record:', error);
       toast.error('Error translating record: ' + error);
       throw error;
