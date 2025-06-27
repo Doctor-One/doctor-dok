@@ -167,7 +167,7 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
   const isInProgress = !!(operationProgress && typeof operationProgress.progress === 'number' && typeof operationProgress.progressOf === 'number' && operationProgress.progress < operationProgress.progressOf) || record.operationInProgress;
 
   // Lock the record while it is being processed either locally or on another device
-  const isLocked = isInProgress || !!operationProgress?.processedOnDifferentDevice;
+  const isLocked = false; // isInProgress || !!operationProgress?.processedOnDifferentDevice;
 
   // Helper to determine if translation is in progress for this record
   const isTranslationInProgress = !!(operationProgress && operationProgress.operationName === RegisteredOperations.Translate && typeof operationProgress.progress === 'number' && typeof operationProgress.progressOf === 'number' && operationProgress.progress < operationProgress.progressOf);

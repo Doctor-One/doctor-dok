@@ -604,6 +604,11 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     let mergedList = (recordsWithOperationStatus || []).filter(r => !(typeof r.id === 'number' && locallyDeletedRecordIds.has(r.id)));
 
     // If this was a partial request with explicit recordIds, remove any records that were expected but not returned (they were likely deleted on another device)
+    if (updateAvailableTags) {
+      const fetchedIdSet = new Set(fetchedRecords.map(r => r.id));
+      mergedList = mergedList.filter(r => fetchedIdSet.has(r.id));
+    }
+
     if (requestedRecordIds && requestedRecordIds.length > 0) {
       const returnedIds = new Set(mergedList.map(r => r.id));
       mergedList = mergedList.filter(r => !requestedRecordIds.includes(r.id as number) || returnedIds.has(r.id));
