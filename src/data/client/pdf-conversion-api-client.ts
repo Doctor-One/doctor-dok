@@ -28,7 +28,7 @@ export class PdfConversionApiClient extends ApiClient {
   }
 
   async convertPdf(request: PdfConversionRequest): Promise<PdfConversionResponse> {
-    const result = await this.request<PdfConversionResponse>('/api/convert-pdf', 'POST', { ecnryptedFields: [], temporaryServerKey: request.temporaryServerKey }, request);
+    const result = await this.request<PdfConversionResponse>('/enclave/convert-pdf', 'POST', { ecnryptedFields: [], temporaryServerKey: request.temporaryServerKey }, request);
     return Array.isArray(result) ? result[0] : result;
   }
 } 

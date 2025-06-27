@@ -24,8 +24,8 @@ export type DatabaseManifest = {
 }
 
 export const maintenance = { 
-	databaseDirectory: (databaseId:string, databaseSchema:string = '', databasePartition: string = '') =>  path.join(rootPath, 'data', databaseId, databasePartition ? databaseSchema + '-partitions' : ''),
-	databaseFileName: (databaseId:string, databaseSchema:string = '', databasePartition: string = '') =>  path.join(maintenance.databaseDirectory(databaseId, databaseSchema, databasePartition), `db${databaseSchema ? '-' + databaseSchema + (databasePartition ? '-' + databasePartition : '') : ''}.sqlite`),
+	databaseDirectory: (databaseId:string, databaseSchema:string = '', databasePartition: string = '') =>  path.join(rootPath, 'data', databaseId, databasePartition ? (databaseSchema ? databaseSchema + '-partitions' : 'partitions') : ''),
+	databaseFileName: (databaseId:string, databaseSchema:string = '', databasePartition: string = '') =>  path.join(maintenance.databaseDirectory(databaseId, databaseSchema, databasePartition), `db${databaseSchema ? '-' + databaseSchema + (databasePartition ? '-' + databasePartition : '') : (databasePartition ? '-' + databasePartition : '')}.sqlite`),
 	createDatabaseManifest: async (databaseId: string, databaseManifest: DatabaseManifest) => {
 		const databaseDirectory = maintenance.databaseDirectory(databaseId)
 		if (!fs.existsSync(databaseDirectory)) {

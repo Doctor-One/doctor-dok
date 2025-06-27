@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { convertServerSide } from '@/lib/pdf2js-server';
-import { authorizeRequestContext, AuthorizedRequestContext } from '@/lib/generic-api';
+import { authorizeRequestContext, AuthorizedRequestContext, AuthorizationError } from '@/lib/generic-api';
 import { StorageService } from '@/lib/storage-service';
 import { EncryptionUtils } from '@/lib/crypto';
 import { rmdirSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { deleteTemporaryServerKey } from '@/data/server/server-key-helpers';
+import { KeyAuthorizationZone } from '@/data/dto';
+import { getErrorMessage } from '@/lib/utils';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest, response: NextResponse) {
   let tempDir: string = '';
   let context: AuthorizedRequestContext | null = null;
   try {
 
-    context = await authorizeRequestContext(request); // we need to authorize the request to get the temporary server key
+    context = await authorizeRequestContext(request, response, KeyAuthorizationZone.Enclave); // we need to authorize the request to get the temporary server key
     const storageService = new StorageService(context.databaseIdHash);
     tempDir = join(storageService.getTempDir(), nanoid());
-    
+
 
     const body = await request.json();
     let { pdfBase64, conversion_config, storageKey } = body;
@@ -50,10 +52,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('PDF conversion error:', error);
-    return NextResponse.json(
-      { error: 'Failed to convert PDF', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
+
+    if (error instanceof AuthorizationError)
+      return new Response(getErrorMessage(error), { status: 401 });
+    else
+      return new Response(getErrorMessage(error), { status: 500 });
+
+
+
   } finally {
     if (context) {
       context.deleteTemporaryServerKey();

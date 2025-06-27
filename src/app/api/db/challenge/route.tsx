@@ -1,8 +1,7 @@
-import { databaseAuthorizeChallengeRequestSchema, keyHashParamsDTOSchema, KeyDTO } from "@/data/dto";
+import { databaseAuthorizeChallengeRequestSchema, keyHashParamsDTOSchema, KeyDTO, KeyAuthorizationZone } from "@/data/dto";
+import { checkKeyACL } from "@/data/server/server-key-helpers";
 import ServerKeyRepository from "@/data/server/server-key-repository";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
-
-
 export async function POST(request: Request) {
     try {
         const jsonRequest = await request.json();
@@ -18,6 +17,16 @@ export async function POST(request: Request) {
                     status: 401               
                 });                    
             } else {
+
+                const preventEnclaveKeysToAuthorizeApp = await checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave) || existingKeys[0].zone === KeyAuthorizationZone.Enclave; 
+
+                if (preventEnclaveKeysToAuthorizeApp) {
+                    return Response.json({
+                        message: 'Enclave keys are not allowed to authorize the app.',
+                        status: 403               
+                    });  
+                }
+
                 const khpdValidation = keyHashParamsDTOSchema.safeParse(JSON.parse(existingKeys[0].keyHashParams))
                 if (!khpdValidation.success) {
                     console.error(khpdValidation);

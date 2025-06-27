@@ -25,6 +25,16 @@ export const configDTOSchema = z.object({
 export const ConfigDTOEncSettings: DTOEncryptionSettings =  { ecnryptedFields: ['value'] }
 export type ConfigDTO = z.infer<typeof configDTOSchema>;
 
+export enum KeyAuthorizationZone {
+  Standard = '',
+  Enclave = 'enclave'
+}
+
+export enum AuthorizationUrlZones {
+  Enclave = '/enclave',
+  Api = '/api'
+}
+
 export const keyDTOSchema = z.object({
   displayName: z.string().min(1),
   keyLocatorHash: z.string().min(64).max(64),
@@ -36,6 +46,7 @@ export const keyDTOSchema = z.object({
   extra: z.string().nullable().optional(),
   expiryDate: z.string().nullable(),
   updatedAt: z.string().default(() => getCurrentTS()),
+  zone: z.string().optional().nullable(), // used for partitioned databases
 });
 
 export const KeyDTOEncSettings: DTOEncryptionSettings =  { ecnryptedFields: [] }

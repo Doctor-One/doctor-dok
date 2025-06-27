@@ -1,4 +1,4 @@
-import { KeyACLDTO, KeyDTO, keyDTOSchema } from "@/data/dto";
+import { KeyACLDTO, KeyAuthorizationZone, KeyDTO, keyDTOSchema } from "@/data/dto";
 import ServerConfigRepository from "@/data/server/server-config-repository";
 import ServerKeyRepository from "@/data/server/server-key-repository";
 import { authorizeRequestContext, genericGET, genericPUT } from "@/lib/generic-api";
@@ -9,11 +9,15 @@ export async function PUT(request: NextRequest, response: NextResponse) {
     try {
         const newKeyDataACL = newKeyDataDTO.acl ? JSON.parse(newKeyDataDTO.acl) as KeyACLDTO : null;
         const requestContext = await authorizeRequestContext(request, response);
-        if (requestContext.acl.role !== 'owner' && (newKeyDataACL?.role !== 'temp' || !newKeyDataDTO.expiryDate)) { // if the key is not a temporary key and has no expiry date, it is not allowed to be created
+        if (requestContext.acl.role !== 'owner' && (newKeyDataACL?.role !== KeyAuthorizationZone.Enclave || !newKeyDataDTO.expiryDate)) { // if the key is not a temporary key and has no expiry date, it is not allowed to be created
             return Response.json({ message: "Owner role is required", status: 401 }, {status: 401});
         }
 
-        const apiResult = await genericPUT<KeyDTO>(newKeyDataDTO, keyDTOSchema, new ServerKeyRepository(requestContext.databaseIdHash), 'keyLocatorHash');
+        if (Object.values(KeyAuthorizationZone).includes(newKeyDataDTO.zone as KeyAuthorizationZone) === false) {
+            return Response.json({ message: "Invalid key zone", status: 400 }, {status: 401});
+        }
+
+        const apiResult = await genericPUT<KeyDTO>(newKeyDataDTO, keyDTOSchema, new ServerKeyRepository(requestContext.databaseIdHash, '', newKeyDataDTO.zone ? newKeyDataDTO.zone : ''), 'keyLocatorHash');
         return Response.json(apiResult, { status: apiResult.status });
     } catch (error) {
         console.error(error);

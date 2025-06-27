@@ -970,7 +970,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         const tempKey = await temporaryServerEncryptionKey(dbContextRef.current!, saasContext);
 
         console.log('Downloading attachment with server-side decryption');
-        url =  '/download/' + attachment.storageKey + '?encr=' + encodeURIComponent(tempKey.encryptedKey) + '&token=' + encodeURIComponent(dbContextRef.current?.accessToken) + '&klh=' + encodeURIComponent(tempKey.keyLocatorHash) + '&kh=' + encodeURIComponent(tempKey.keyHash);
+        url =  '/enclave/download/' + attachment.storageKey + '?encr=' + encodeURIComponent(tempKey.encryptedKey) + '&klh=' + encodeURIComponent(tempKey.keyLocatorHash) + '&kh=' + encodeURIComponent(tempKey.keyHash) + '&dbid=' + encodeURIComponent(dbContextRef.current?.databaseHashId || '');
       } else {
         url = await getAttachmentData(attachment, AttachmentFormat.blobUrl, useCache) as string;
       }

@@ -1,5 +1,5 @@
-import { databaseAuthorizeRequestSchema, defaultKeyACL, KeyDTO } from "@/data/dto";
-import { authorizeKey } from "@/data/server/server-key-helpers";
+import { databaseAuthorizeRequestSchema, defaultKeyACL, KeyAuthorizationZone, KeyDTO } from "@/data/dto";
+import { authorizeKey, checkKeyACL } from "@/data/server/server-key-helpers";
 import { authorizeSaasContext } from "@/lib/generic-api";
 import { generateTimeBasedPassword } from "@/lib/totp";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
@@ -31,6 +31,15 @@ export async function POST(request: NextRequest) {
                     status: 401               
                 });                    
             } else {
+
+                const preventEnclaveKeysToAuthorizeApp = await checkKeyACL(keyDetails as KeyDTO, KeyAuthorizationZone.Enclave) || (keyDetails as KeyDTO).zone === KeyAuthorizationZone.Enclave;
+
+                if (preventEnclaveKeysToAuthorizeApp) {
+                    return Response.json({
+                        message: 'Enclave keys are not allowed to authorize the app.',
+                        status: 403               
+                    });  
+                }                
 
                 const alg = 'HS256'
                 const tokenPayload = { databaseIdHash: authRequest.databaseIdHash, keyHash: authRequest.keyHash, keyLocatorHash: authRequest.keyLocatorHash }
