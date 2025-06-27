@@ -2,9 +2,6 @@ import { databaseAuthorizeChallengeRequestSchema, keyHashParamsDTOSchema, KeyDTO
 import { checkKeyACL } from "@/data/server/server-key-helpers";
 import ServerKeyRepository from "@/data/server/server-key-repository";
 import { getErrorMessage, getZedErrorMessage } from "@/lib/utils";
-import { Key } from "lucide-react";
-
-
 export async function POST(request: Request) {
     try {
         const jsonRequest = await request.json();
