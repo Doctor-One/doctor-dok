@@ -1,7 +1,7 @@
 import ServerEncryptedAttachmentRepository from "@/data/server/server-encryptedattachment-repository";
 import { EncryptionUtils } from "@/lib/crypto";
 import { getErrorMessage } from "@/lib/utils";
-import { AuthorizedRequestContext, authorizeRequestContext, genericDELETE} from "@/lib/generic-api";
+import { AuthorizationError, AuthorizedRequestContext, authorizeRequestContext, genericDELETE} from "@/lib/generic-api";
 import { StorageService } from "@/lib/storage-service";
 import { NextRequest, NextResponse } from "next/server";
 import { KeyAuthorizationZone } from "@/data/dto";
@@ -50,8 +50,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         return new Response(fileContent, { headers });
 
     } catch (error) {
-        console.error(error);
-        return new Response(getErrorMessage(error), { status: 500 });
+        if (error instanceof AuthorizationError)
+            return new Response(getErrorMessage(error), { status: 401 });
+        else 
+            return new Response(getErrorMessage(error), { status: 500 });
     } finally {
         if (requestContext) {
             requestContext.deleteTemporaryServerKey();

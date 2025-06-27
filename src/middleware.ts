@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import {SignJWT, jwtVerify, type JWTPayload} from 'jose'
 import { AuthorizationUrlZones } from './data/dto';
-import { getEnclaveRequestAuthorization } from './lib/generic-api';
+import { getEnclaveRequestAuthorization } from './lib/enclave-helpers';
 
 export async function middleware(request: NextRequest) {
     
@@ -20,7 +20,7 @@ export async function middleware(request: NextRequest) {
         } else {
             return NextResponse.json({ message: 'Unauthorized', status: 401 }, { status: 401 });
         }
-        
+
     } else {
         try {
             const decoded = await jwtVerify(jwtToken, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));

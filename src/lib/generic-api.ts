@@ -4,15 +4,25 @@ import { ZodError, ZodObject } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeKey, deleteTemporaryServerKey } from "@/data/server/server-key-helpers";
 import { jwtVerify } from "jose";
-import { defaultKeyACL, KeyACLDTO, KeyAuthorizationZone, KeyDTO, SaaSDTO } from "@/data/dto";
+import { AuthorizationUrlZones, defaultKeyACL, KeyACLDTO, KeyAuthorizationZone, KeyDTO, keyHashParamsDTOSchema, SaaSDTO } from "@/data/dto";
 import { Key } from "react";
 import { PlatformApiClient } from "@/data/server/platform-api-client";
 import NodeCache from "node-cache";
 import { ApiError } from "@/data/dto";
 import { DTOEncryptionFilter, EncryptionUtils } from "@/lib/crypto";
 import { otpManager } from "./otp-manager";
+import { getEnclaveRequestAuthorization } from "./enclave-helpers";
+import { hash, verify } from 'argon2';
 
 const saasCtxCache = new NodeCache({ stdTTL: 60 * 60 * 10 /* 10 min cache */ });
+
+export class AuthorizationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'AuthorizationError';
+    }
+}
+
 
 export type ApiResult = {
     message: string;
@@ -121,7 +131,7 @@ export async function authorizeSaasContext(request: NextRequest, forceNoCache: b
     }
 }
 
-export async function getTemporaryPassedMasterKeyFromRequest(timeBasedEncryptionKey: string, encryptedMasterKey: string, keyLocatorHash: string): Promise<{ masterKey: string | null, encryptionKey: string | null }> {
+export async function decryptTemporaryKeys(timeBasedEncryptionKey: string, encryptedMasterKey: string, keyLocatorHash: string): Promise<{ masterKey: string | null, encryptionKey: string | null }> {
     let masterKey = null;
     let encryptionKey = null;
     if (timeBasedEncryptionKey) {
@@ -142,9 +152,7 @@ export async function getTemporaryPassedMasterKeyFromRequest(timeBasedEncryption
 }
 
 
-async function prepareAuthorizedRequestContext(authResult: KeyDTO, timeBasedEncryptionKey: string | null = null): Promise<AuthorizedRequestContext> {
-
-    const { masterKey, encryptionKey } = timeBasedEncryptionKey ? await getTemporaryPassedMasterKeyFromRequest(timeBasedEncryptionKey, (authResult as KeyDTO).encryptedMasterKey, authResult.keyLocatorHash) : { masterKey: null, encryptionKey: null };
+async function prepareAuthorizedRequestContext(authResult: KeyDTO, enclaveSecurity: { masterKey: string | null, ecnryptionKey: string | null, serverCommunicationKey: string } | null = null ): Promise<AuthorizedRequestContext> {
 
     let aclDTO: KeyACLDTO | null = null;
     try {
@@ -152,7 +160,7 @@ async function prepareAuthorizedRequestContext(authResult: KeyDTO, timeBasedEncr
         aclDTO = keyACL ? JSON.parse(keyACL) : defaultKeyACL
     } catch (e) {
         console.error('Error parsing Key ACL:', e);
-        throw new Error('Invalid Key ACL format');
+        throw new AuthorizationError('Invalid Key ACL format');
     }
     return {
         databaseIdHash: authResult.databaseIdHash,
@@ -160,9 +168,9 @@ async function prepareAuthorizedRequestContext(authResult: KeyDTO, timeBasedEncr
         keyLocatorHash: authResult.keyLocatorHash,
         acl: aclDTO as KeyACLDTO,
         extra: (authResult as KeyDTO).extra,
-        masterKey: masterKey,
-        encryptionKey: encryptionKey,
-        serverCommunicationKey: timeBasedEncryptionKey ? timeBasedEncryptionKey : null, // if timeBasedEncryptionKey is provided, it is used as server communication key
+        masterKey: enclaveSecurity?.masterKey ? enclaveSecurity.masterKey : null, // if enclaveSecurity is provided, it is used as master key
+        encryptionKey: enclaveSecurity?.ecnryptionKey ? enclaveSecurity.ecnryptionKey : null, // if enclaveSecurity is provided, it is used as encryption key
+        serverCommunicationKey: enclaveSecurity?.serverCommunicationKey ? enclaveSecurity.serverCommunicationKey : null, // if enclaveSecurity is provided, it is used as server communication key
         deleteTemporaryServerKey: () => aclDTO?.role === KeyAuthorizationZone.Enclave ? deleteTemporaryServerKey({ keyLocatorHash: authResult.keyLocatorHash, keyHash: authResult.keyHash, databaseIdHash: authResult.databaseIdHash }) : new Promise((resolve) => resolve(false)) // only allow deletion of temporary keys
     }
 }
@@ -172,69 +180,75 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
     const authorizationHeader = request.headers.get('Authorization');
     let jwtToken = authorizationHeader?.replace('Bearer ', '');
 
-    if (authorizationZone === KeyAuthorizationZone.Enclave) { // security enclave - use temporary key for authorization
+    try {
+        if (authorizationZone === KeyAuthorizationZone.Enclave) { // security enclave - use temporary key for authorization
 
-        let { databaseIdHash, keyHash, keyLocatorHash, timeBasedEncryptionKey } = getEnclaveRequestAuthorization(request);
-        const authResult = await authorizeKey({
-            databaseIdHash: databaseIdHash as string,
-            keyHash: keyHash as string,
-            keyLocatorHash: keyLocatorHash as string
-        });
-
-        if (!authResult) {
-            NextResponse.json({ message: 'Unauthorized', status: 401 });
-            throw new Error('Unauthorized. Wrong Key.');
-        } else {
-            return prepareAuthorizedRequestContext(authResult as KeyDTO, timeBasedEncryptionKey); // add temporary key if available
-        }
-
-    } else {
-
-        if (!jwtToken) {
-            jwtToken = request.nextUrl.searchParams.get('token') || undefined;
-        }
-
-        if (jwtToken) {
-            const decoded = await jwtVerify(jwtToken as string, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
-
+            let { databaseIdHash, keyHash, keyLocatorHash, timeBasedEncryptionKey } = getEnclaveRequestAuthorization(request);
             const authResult = await authorizeKey({
-                databaseIdHash: decoded.payload.databaseIdHash as string,
-                keyHash: decoded.payload.keyHash as string,
-                keyLocatorHash: decoded.payload.keyLocatorHash as string
+                databaseIdHash: databaseIdHash as string,
+                keyHash: keyHash as string,
+                keyLocatorHash: keyLocatorHash as string
             });
 
             if (!authResult) {
                 NextResponse.json({ message: 'Unauthorized', status: 401 });
-                throw new Error('Unauthorized. Wrong Key.');
+                throw new AuthorizationError('Unauthorized. Wrong Key.');
             } else {
-                return prepareAuthorizedRequestContext(authResult as KeyDTO, null); // no temporary key in standard zone
+
+                const { masterKey, encryptionKey } = timeBasedEncryptionKey ? await decryptTemporaryKeys(timeBasedEncryptionKey, (authResult as KeyDTO).encryptedMasterKey, (authResult as KeyDTO).keyLocatorHash) : { masterKey: null, encryptionKey: null };
+
+                if (!masterKey || !encryptionKey) {
+                    NextResponse.json({ message: 'Unauthorized. Temporary key decryption failed', status: 401 });
+                    throw new AuthorizationError('Unauthorized. Temporary key decryption failed');
+                }
+                const keyHashParams = keyHashParamsDTOSchema.parse(JSON.parse((authResult as KeyDTO).keyHashParams))
+
+                const isTemporaryEncryptionKeyVerified = await verify((authResult as KeyDTO).keyHash, encryptionKey);
+                console.log('Key Hash Verification:', isTemporaryEncryptionKeyVerified);
+
+                if (!isTemporaryEncryptionKeyVerified) {
+                    NextResponse.json({ message: 'Unauthorized.', status: 401 });
+                    throw new AuthorizationError('Unauthorized. Temporary encryption key is wrong.');
+                }
+
+                return prepareAuthorizedRequestContext(authResult as KeyDTO, {
+                    masterKey: masterKey,
+                    ecnryptionKey: encryptionKey,
+                    serverCommunicationKey: timeBasedEncryptionKey // use server communication key if available
+                }); // add temporary key if available
             }
+
         } else {
-            NextResponse.json({ message: 'Unauthorized', status: 401 });
-            throw new Error('Unauthorized. No Token');
+
+            if (!jwtToken) {
+                jwtToken = request.nextUrl.searchParams.get('token') || undefined;
+            }
+
+            if (jwtToken) {
+                const decoded = await jwtVerify(jwtToken as string, new TextEncoder().encode(process.env.NEXT_PUBLIC_TOKEN_SECRET || 'Jeipho7ahchue4ahhohsoo3jahmui6Ap'));
+
+                const authResult = await authorizeKey({
+                    databaseIdHash: decoded.payload.databaseIdHash as string,
+                    keyHash: decoded.payload.keyHash as string,
+                    keyLocatorHash: decoded.payload.keyLocatorHash as string
+                });
+
+                if (!authResult) {
+                    NextResponse.json({ message: 'Unauthorized', status: 401 });
+                    throw new AuthorizationError('Unauthorized. Wrong Key.');
+                } else {
+                    return prepareAuthorizedRequestContext(authResult as KeyDTO, null); // no temporary key in standard zone
+                }
+            } else {
+                NextResponse.json({ message: 'Unauthorized', status: 401 });
+                throw new AuthorizationError('Unauthorized. No Token');
+            }
         }
-    }
-}
-
-export function getEnclaveRequestAuthorization(request: NextRequest) {
-    try {
-
-        if(!request.url.includes('enclave')) {
-
-        let keyLocatorHash = request.headers.get('key-locator-hash') !== null ? request.headers.get('key-locator-hash') : request.nextUrl.searchParams.get('klh'); // we let the user to override the key data from the JWT token to allow for server-side decryption
-        let keyHash = request.headers.get('key-hash') !== null ? request.headers.get('key-hash') : request.nextUrl.searchParams.get('kh');
-        let databaseIdHash = request.headers.get('database-id-hash') !== null ? request.headers.get('database-id-hash') : request.nextUrl.searchParams.get('dbid');
-        let timeBasedEncryptionKey = request.headers.get('encryption-key') !== null ? request.headers.get('encryption-key') : request.nextUrl.searchParams.get('encr') !== null ? request.nextUrl.searchParams.get('encr') : null;
-
-
-        if (!keyLocatorHash || !keyHash || !databaseIdHash || !timeBasedEncryptionKey) {
-            throw new Error('Missing required parameters: keyLocatorHash, keyHash, or databaseIdHash, timeBasedEncryptionKey');
-        }
-
-        return { databaseIdHash, keyHash, keyLocatorHash, timeBasedEncryptionKey };
     } catch (e) {
-        console.error('Error parsing enclave request authorization:', getErrorMessage(e));
-        throw new Error('Invalid enclave request authorization format: ' + getErrorMessage(e));    
+        console.error('Error authorizing request context:', getErrorMessage(e));
+        NextResponse.json({ message: 'Unauthorized', status: 401 });
+
+        throw new AuthorizationError(getErrorMessage(e));
     }
 }
 

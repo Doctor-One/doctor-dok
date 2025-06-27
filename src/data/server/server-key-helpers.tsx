@@ -28,7 +28,6 @@ export async function checkKeyACL(key: KeyDTO, requiredRole: string): Promise<bo
     if (keyACL.role === requiredRole) {
         return true;
     } else {
-        console.error(`Key ACL role ${keyACL.role} does not match required role ${requiredRole}`);
         return false;
     }
 }

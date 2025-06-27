@@ -39,6 +39,7 @@
     "@svgr/webpack": "^8.1.0",
     "@uiw/react-json-view": "^1.12.2",
     "ai": "^3.2.27",
+    "argon2": "^0.43.0",
     "argon2-browser": "^1.18.0",
     "async-mutex": "^0.5.0",
     "axios": "^1.7.4",
