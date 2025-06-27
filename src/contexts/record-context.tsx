@@ -1029,7 +1029,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       let url = '';
       if ((isIOS() && process.env.NEXT_PUBLIC_OPTIONAL_CONVERT_PDF_SERVERSIDE) || process.env.NEXT_PUBLIC_CONVERT_PDF_SERVERSIDE) {
 
-        const tempKey = await temporaryServerEncryptionKey(dbContextRef.current!, saasContext);
+
+         const refreshResult = await dbContextRef.current?.refresh({ // we always refresh token here as we're not sure if the token is still valid or not and it's related with the serverCommunicationKey
+          refreshToken: dbContextRef.current.refreshToken
+        })
+
+        const tempKey = await temporaryServerEncryptionKey(dbContextRef.current!, saasContext, refreshResult && refreshResult.success ? refreshResult.accessToken : undefined, refreshResult && refreshResult.success ? refreshResult.serverCommunicationKey : undefined);
 
         console.log('Downloading attachment with server-side decryption');
         url =  '/enclave/download/' + attachment.storageKey + '?encr=' + encodeURIComponent(tempKey.encryptedKey) + '&klh=' + encodeURIComponent(tempKey.keyLocatorHash) + '&kh=' + encodeURIComponent(tempKey.keyHash) + '&dbid=' + encodeURIComponent(dbContextRef.current?.databaseHashId || '');
