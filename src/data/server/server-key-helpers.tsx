@@ -2,8 +2,14 @@ import { DatabaseAuthorizeRequestDTO, DeleteKeyRequestDTO, KeyACLDTO, KeyAuthori
 import ServerKeyRepository from "./server-key-repository";
 
 
-export async function authorizeKey(authRequest: DatabaseAuthorizeRequestDTO): Promise<KeyDTO | boolean> {
-    const keyRepo = new ServerKeyRepository(authRequest.databaseIdHash); // get the user key
+export async function authorizeKey(authRequest: DatabaseAuthorizeRequestDTO, zone: KeyAuthorizationZone = KeyAuthorizationZone.Standard): Promise<KeyDTO | boolean> {
+    
+    if (Object.values(KeyAuthorizationZone).includes(zone as KeyAuthorizationZone) === false) {
+        return false; // invalid zone
+    }
+
+    
+    const keyRepo = new ServerKeyRepository(authRequest.databaseIdHash, '', zone); // get the user key
     const existingKeys:KeyDTO[] = await keyRepo.findAll({  filter: { keyLocatorHash: authRequest.keyLocatorHash } }); // check if key already exists
     
     if(existingKeys.length === 0) { // this situation theoretically should not happen bc. if database file exists we return out of the function
@@ -33,13 +39,13 @@ export async function checkKeyACL(key: KeyDTO, requiredRole: string): Promise<bo
 }
 
 export async function deleteTemporaryServerKey(deleteKeyReqeuest: DeleteKeyRequestDTO): Promise<boolean> {
-    const keyRepo = new ServerKeyRepository(deleteKeyReqeuest.databaseIdHash); // get the user key
+    const keyRepo = new ServerKeyRepository(deleteKeyReqeuest.databaseIdHash, '' , KeyAuthorizationZone.Enclave); // we can delete keys only from the enclave
     const existingKeys:KeyDTO[] = await keyRepo.findAll({  filter: { keyLocatorHash: deleteKeyReqeuest.keyLocatorHash } }); // check if key already exists
     if(existingKeys.length !== 1) { // this situation theoretically should not happen bc. if database file exists we return out of the function
         return false;      
     } else {
         
-        if (existingKeys[0].keyHash !== deleteKeyReqeuest.keyHash || !existingKeys[0].expiryDate || !checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave)) {     // double check if the key is the same as the one we're trying to delete - it must be temporary
+    if (existingKeys[0].keyHash !== deleteKeyReqeuest.keyHash || !existingKeys[0].expiryDate || !checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave) || existingKeys[0].zone !== KeyAuthorizationZone.Enclave ) {     // double check if the key is the same as the one we're trying to delete - it must be temporary
             console.error('Key is not the same as the one we\'re trying to delete - it must be temporary');
             return false;
         } else {

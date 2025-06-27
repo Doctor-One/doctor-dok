@@ -188,7 +188,7 @@ export async function authorizeRequestContext(request: NextRequest, response?: N
                 databaseIdHash: databaseIdHash as string,
                 keyHash: keyHash as string,
                 keyLocatorHash: keyLocatorHash as string
-            });
+            }, KeyAuthorizationZone.Enclave);
 
             if (!authResult) {
                 NextResponse.json({ message: 'Unauthorized', status: 401 });

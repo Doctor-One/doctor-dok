@@ -19,7 +19,7 @@ export async function temporaryServerEncryptionKey(
   
     try {
       const sharedKey = generateEncryptionKey();
-      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: KeyAuthorizationZone.Enclave , features: ['*'] }, dbContext, saasContext) as PutKeyResponse;
+      const generatedKey = await addKeyHelper(dbContext.databaseId, 'Temporary Key for Server Communication', sharedKey, new Date(Date.now() + 5 * 3600 * 1000), { role: KeyAuthorizationZone.Enclave , features: ['*'] }, dbContext, saasContext, undefined, KeyAuthorizationZone.Enclave) as PutKeyResponse;
 
       if (generatedKey.status !== 200) {
         throw new Error(`Failed to generate temporary key: ${generatedKey.message}`);
@@ -49,6 +49,7 @@ export const addKeyHelper = async (
     dbContext: DatabaseContextType,
     saasContext: SaaSContextType | null,
     existingKeys: Key[] = [],
+    zone: string = '',
     onSuccess?: () => void,
     onError?: (message: string) => void
 ): Promise<PutKeyResponse> => {
@@ -94,7 +95,8 @@ export const addKeyHelper = async (
         displayName,
         acl: JSON.stringify(acl),
         expiryDate: expDate !== null ? expDate.toISOString() : '',
-        updatedAt: getCurrentTS()
+        updatedAt: getCurrentTS(),
+        zone: zone
     };
 
     const result = await apiClient.put(keyDTO);

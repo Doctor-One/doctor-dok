@@ -13,7 +13,11 @@ export async function PUT(request: NextRequest, response: NextResponse) {
             return Response.json({ message: "Owner role is required", status: 401 }, {status: 401});
         }
 
-        const apiResult = await genericPUT<KeyDTO>(newKeyDataDTO, keyDTOSchema, new ServerKeyRepository(requestContext.databaseIdHash), 'keyLocatorHash');
+        if (Object.values(KeyAuthorizationZone).includes(newKeyDataDTO.zone as KeyAuthorizationZone) === false) {
+            return Response.json({ message: "Invalid key zone", status: 400 }, {status: 401});
+        }
+
+        const apiResult = await genericPUT<KeyDTO>(newKeyDataDTO, keyDTOSchema, new ServerKeyRepository(requestContext.databaseIdHash, '', newKeyDataDTO.zone ? newKeyDataDTO.zone : ''), 'keyLocatorHash');
         return Response.json(apiResult, { status: apiResult.status });
     } catch (error) {
         console.error(error);

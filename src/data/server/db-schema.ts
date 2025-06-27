@@ -25,7 +25,8 @@ export const keys = sqliteTable('keys', {
     acl: text('acl'),
     extra: text('extra'),
     expiryDate: text('expiryDate').default(sql`CURRENT_TIMESTAMP`),
-    updatedAt: text('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`)
+    updatedAt: text('updatedAt').notNull().default(sql`CURRENT_TIMESTAMP`),
+    zone: text('zone', { mode: 'text' }).default('')
 }); 
 
 export const records = sqliteTable('records', {

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
                 });                    
             } else {
 
-                const preventEnclaveKeysToAuthorizeApp = await checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave);
+                const preventEnclaveKeysToAuthorizeApp = await checkKeyACL(existingKeys[0], KeyAuthorizationZone.Enclave) || existingKeys[0].zone === KeyAuthorizationZone.Enclave; 
 
                 if (preventEnclaveKeysToAuthorizeApp) {
                     return Response.json({

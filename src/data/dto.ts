@@ -46,6 +46,7 @@ export const keyDTOSchema = z.object({
   extra: z.string().nullable().optional(),
   expiryDate: z.string().nullable(),
   updatedAt: z.string().default(() => getCurrentTS()),
+  zone: z.string().optional().nullable(), // used for partitioned databases
 });
 
 export const KeyDTOEncSettings: DTOEncryptionSettings =  { ecnryptedFields: [] }
