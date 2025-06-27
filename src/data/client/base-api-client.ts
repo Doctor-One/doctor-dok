@@ -47,7 +47,7 @@ export class ApiClient {
   ): Promise<ArrayBuffer | null | undefined> {
     const headers: Record<string, string> = {};
 
-    if (this.dbContext?.accessToken || repeatedRequestAccessToken) {
+    if (!temporaryKey && (this.dbContext?.accessToken || repeatedRequestAccessToken)) {
       headers['Authorization'] = `Bearer ${repeatedRequestAccessToken ? repeatedRequestAccessToken : this.dbContext?.accessToken}`;
     }
 
@@ -118,7 +118,7 @@ export class ApiClient {
   ): Promise<T | T[]> {
     const headers: Record<string, string> = {};
 
-    if (this.dbContext?.accessToken || repeatedRequestAccessToken) {
+    if (!encryptionSettings?.temporaryServerKey && (this.dbContext?.accessToken || repeatedRequestAccessToken)) {
       headers['Authorization'] = `Bearer ${repeatedRequestAccessToken ? repeatedRequestAccessToken : this.dbContext?.accessToken}`;
     }
 
