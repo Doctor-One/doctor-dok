@@ -1,7 +1,7 @@
 import { BaseRepository, IQuery } from "./base-repository";
 import { OperationDTO } from "../dto";
 import { operations } from "./db-schema-operations";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, and } from "drizzle-orm";
 import { create } from "./generic-repository";
 
 export default class ServerOperationsRepository extends BaseRepository<OperationDTO> {
@@ -13,7 +13,7 @@ export default class ServerOperationsRepository extends BaseRepository<Operation
             const existing = db
                 .select()
                 .from(operations)
-                .where(eq(operations.recordId, Number(item.recordId)))
+                .where(and(eq(operations.recordId, Number(item.recordId)), eq(operations.operationName, item.operationName)))
                 .get() as OperationDTO | undefined;
 
             if (existing) {
@@ -69,9 +69,13 @@ export default class ServerOperationsRepository extends BaseRepository<Operation
             if (query.filter.id !== undefined) {
                 dbQuery.where(eq(operations.id, Number(query.filter.id)));
             } else if (query.filter.recordId !== undefined) {
-                dbQuery.where(eq(operations.recordId, Number(query.filter.recordId)));
+                if (query.filter.operationName !== undefined) {
+                    dbQuery.where(and(eq(operations.recordId, Number(query.filter.recordId)), eq(operations.operationName, query.filter.operationName)));
+                } else {
+                    dbQuery.where(eq(operations.recordId, Number(query.filter.recordId)));
+                }
             } else if (query.filter.recordIds !== undefined && Array.isArray(query.filter.recordIds)) {
-                dbQuery.where(inArray(operations.recordId, query.filter.recordIds.map((id: string) => Number(id))));
+                dbQuery.where(inArray(operations.recordId, query.filter.recordIds.map((id: string) => Number(id)))).orderBy(desc(operations.operationId));
             } else if (query.filter.operationId !== undefined) {
                 dbQuery.where(eq(operations.operationId, String(query.filter.operationId)));
             }

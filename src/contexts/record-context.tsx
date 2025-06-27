@@ -96,6 +96,9 @@ let recordsBeingTranslated = new Set<number>();
 // Track records currently being updated/deleted (exclusive mutations)
 let recordsBeingMutated = new Set<number>();
 
+// Track records deleted during the current session so we don't re-add them if server still returns them
+let locallyDeletedRecordIds = new Set<number>();
+
 // Parsing progress state: recordId -> { progress, progressOf, metadata, textDelta, pageDelta, history: [] }
 // We'll use a React state for this, so move it into the provider below.
 
@@ -552,6 +555,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const result = await prClient.delete(record)
       if (result.status !== 200) {
         toast.error('Error removing folder record: ' + result.message)
+        if(folderContext?.currentFolder) checkAndRefreshRecords(folderContext?.currentFolder, true);
         return Promise.resolve(false);
       } else {
         toast.success('Folder record removed successfully!')
@@ -571,7 +575,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   const processFetchedRecords = async (
     fetchedRecords: Record[], 
     updateAvailableTags: boolean = false,
-    executionTime: number
+    executionTime: number,
+    requestedRecordIds?: number[]
   ) => {
     // Only update available tags if requested (for full refresh)
     if (updateAvailableTags) {
@@ -595,8 +600,24 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     // This will also merge the fetched records with existing records and return the final merged list
     const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
     
+    // Filter out records that were locally deleted in this session
+    let mergedList = (recordsWithOperationStatus || []).filter(r => !(typeof r.id === 'number' && locallyDeletedRecordIds.has(r.id)));
+
+    // If this was a partial request with explicit recordIds, remove any records that were expected but not returned (they were likely deleted on another device)
+    if (requestedRecordIds && requestedRecordIds.length > 0) {
+      const returnedIds = new Set(mergedList.map(r => r.id));
+      mergedList = mergedList.filter(r => !requestedRecordIds.includes(r.id as number) || returnedIds.has(r.id));
+
+      // Also remove from existing list any records that are missing
+      const missingIds = requestedRecordIds.filter(id => !returnedIds.has(id));
+      if (missingIds.length > 0) {
+        console.log('Removing records not returned by partial refresh (deleted remotely):', missingIds);
+        mergedList = mergedList.filter(r => !missingIds.includes(r.id as number));
+      }
+    }
+    
     // Set the final merged records in state
-    setRecords(recordsWithOperationStatus || []);
+    setRecords(mergedList);
     
     setLastRefreshed(new Date());
     setLoaderStatus(DataLoadingStatus.Success);
@@ -610,7 +631,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     lastListRecordsExecutionTimeRef.current = executionTime;
     console.log(`Records processing execution time: ${executionTime}ms`);
     
-    return recordsWithOperationStatus || [];
+    return mergedList;
   };
 
   const listRecords = async (forFolder: Folder) => {
@@ -651,7 +672,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
 
       const executionTime = Date.now() - startTime;
-      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime);
+      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime, recordIds);
     } catch (error) {
       // Calculate execution time even on error
       const executionTime = Date.now() - startTime;
@@ -819,7 +840,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         
         const recentOperations = response.data.filter(op => 
           op.operationLastStep && 
-          new Date(op.operationLastStep) > new Date(twoMinutesAgo) &&
           !op.operationFinished &&
           !op.operationErrored
         );
@@ -1128,7 +1148,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Shared helper to check for ongoing operations for a specific record
   const checkOngoingOperation = async (recordId: number, operationName?: string) => {
     const operationsApi = getOperationsApiClient();
-    const opRes = await operationsApi.get({ recordId });
+    const opRes = await operationsApi.get({ recordId, operationName });
     
     if ('data' in opRes && Array.isArray(opRes.data) && opRes.data.length > 0) {
       const ongoingOp = opRes.data[0];
