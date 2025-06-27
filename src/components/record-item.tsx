@@ -166,6 +166,9 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
   // Helper to determine if the record is in progress based on operationProgress state
   const isInProgress = !!(operationProgress && typeof operationProgress.progress === 'number' && typeof operationProgress.progressOf === 'number' && operationProgress.progress < operationProgress.progressOf) || record.operationInProgress;
 
+  // Lock the record while it is being processed either locally or on another device
+  const isLocked = isInProgress || !!operationProgress?.processedOnDifferentDevice;
+
   // Helper to determine if translation is in progress for this record
   const isTranslationInProgress = !!(operationProgress && operationProgress.operationName === RegisteredOperations.Translate && typeof operationProgress.progress === 'number' && typeof operationProgress.progressOf === 'number' && operationProgress.progress < operationProgress.progressOf);
 
@@ -548,10 +551,10 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
                       <AccordionTrigger className="flex justify-between">
                         <span>Full text extracted from files</span>
                         <div className="flex gap-2">
-                          <Button size="icon" variant="ghost" title="Edit text" onClick={(e) => {
+                          <Button size="icon" variant="ghost" title="Edit text" disabled={isLocked} onClick={(e) => {
                             e.stopPropagation(); // Prevent accordion from toggling
-                            if(isInProgress) { 
-                              toast.info('Please wait until record is successfully parsed') 
+                            if(isLocked) { 
+                              toast.info('Please wait until record processing is finished') 
                             } else {  
                               recordContext?.setCurrentRecord(record);  
                               recordContext?.setRecordEditMode(true); 
@@ -636,10 +639,10 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
           ) : null
         )}
         <div ref={thisElementRef} className="mt-2 flex items-center gap-2">
-          <Button size="icon" variant="ghost" title="Edit record" onClick={() => { if(isInProgress) { toast.info('Please wait until record is successfully parsed') } else {  recordContext?.setCurrentRecord(record);  recordContext?.setRecordEditMode(true); } }}>
+          <Button size="icon" variant="ghost" title="Edit record" disabled={isLocked} onClick={() => { if(isLocked) { toast.info('Please wait until record processing is finished') } else {  recordContext?.setCurrentRecord(record);  recordContext?.setRecordEditMode(true); } }}>
             <PencilIcon className="w-4 h-4" />
           </Button>        
-          <Button size="icon" variant="ghost" title="Add attachments" onClick={() => { if(isInProgress) { toast.info('Please wait until record is successfully parsed') } else {   recordContext?.setCurrentRecord(record);  recordContext?.setRecordEditMode(true);}  }}>
+          <Button size="icon" variant="ghost" title="Add attachments" disabled={isLocked} onClick={() => { if(isLocked) { toast.info('Please wait until record processing is finished') } else {   recordContext?.setCurrentRecord(record);  recordContext?.setRecordEditMode(true);}  }}>
             <PaperclipIcon className="w-4 h-4" />
           </Button>
           <Button size="icon" variant="ghost" title="Download record as HTML" onClick={() => downloadAsHtml(record.text || record.description, `record-${record.id}`)}>
@@ -658,25 +661,31 @@ export default function RecordItem({ record, displayAttachmentPreviews, isFirstR
               <Languages className="w-4 h-4" />
             )}
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger>
-              <Button size="icon" variant="ghost" title="Delete record">
-                <Trash2Icon className="w-4 h-4"/>
-              </Button>            
-            </AlertDialogTrigger>
-            <AlertDialogContent className="bg-white dark:bg-zinc-950">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete your data record
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>No</AlertDialogCancel>
-                <AlertDialogAction onClick={(e) => recordContext?.deleteRecord(record)}>YES</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>         
+          {isLocked ? (
+            <Button size="icon" variant="ghost" title="Record is being processed" disabled>
+              <Trash2Icon className="w-4 h-4" />
+            </Button>
+          ) : (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="icon" variant="ghost" title="Delete record">
+                  <Trash2Icon className="w-4 h-4"/>
+                </Button>            
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-white dark:bg-zinc-950">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete your data record
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>No</AlertDialogCancel>
+                  <AlertDialogAction onClick={(e) => recordContext?.deleteRecord(record)}>YES</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}         
           {record.json ? (
             <>
               <Button className="h-6 text-xs" variant="ghost" title="AI features" onClick={() => { setCommandsOpen(true) }}>

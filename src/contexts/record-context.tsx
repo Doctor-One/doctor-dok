@@ -93,6 +93,9 @@ let autoTranslateAfterParse = new Set<number>();
 // Add this after autoTranslateAfterParse definition
 let recordsBeingTranslated = new Set<number>();
 
+// Track records currently being updated/deleted (exclusive mutations)
+let recordsBeingMutated = new Set<number>();
+
 // Parsing progress state: recordId -> { progress, progressOf, metadata, textDelta, pageDelta, history: [] }
 // We'll use a React state for this, so move it into the provider below.
 
@@ -279,6 +282,18 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const updateRecord = async (record: Record): Promise<Record> => {
+    // Prevent concurrent modifications
+    if (typeof record.id === 'number') {
+      if (recordsBeingMutated.has(record.id)) {
+        console.warn('Record is already being mutated, skipping update:', record.id);
+        return record;
+      }
+      recordsBeingMutated.add(record.id);
+    }
+
+    // Pause auto-refresh during save to avoid race conditions
+    stopAutoRefresh();
+
     try {
       setOperationStatus(DataLoadingStatus.Loading);
       const client = await setupApiClient(config);
@@ -371,6 +386,10 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       toast.error('Error adding folder record');
       setOperationStatus(DataLoadingStatus.Error);
       return record;
+    } finally {
+      // Unlock and resume auto-refresh
+      if (typeof record.id === 'number') recordsBeingMutated.delete(record.id);
+      if (folderContext?.currentFolder) startAutoRefresh(folderContext.currentFolder);
     }
   };
 
@@ -499,37 +518,52 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   }
 
   const deleteRecord = async (record: Record) => {
-    const prClient = await setupApiClient(config);
-    const attClient = await setupAttachmentsApiClient(config);
-
-    // Check for preserved attachments
-    const preservedAttachmentsExtra = record.extra?.find(e => e.type === 'Preserved attachments')?.value;
-    const preservedAttachmentIds = typeof preservedAttachmentsExtra === 'string' ? preservedAttachmentsExtra.split(',').map(id => id.trim()) : [];
-
-    if (record.attachments.length > 0) {
-      for (const attachment of record.attachments) {
-        // Skip deletion if attachment is preserved
-        if (preservedAttachmentIds.includes(attachment.id?.toString() || '')) {
-          console.log('Skipping deletion of preserved attachment:', attachment.id);
-          continue;
+    try { 
+      if (typeof record.id === 'number') {
+        if (recordsBeingMutated.has(record.id)) {
+          console.warn('Record is already being mutated, skipping delete:', record.id);
+          return Promise.resolve(false);
         }
-        const result = await attClient.delete(attachment.toDTO());
-        if (result.status !== 200) {
-          toast.error('Error removing attachment: ' + attachment.displayName)
+        recordsBeingMutated.add(record.id);
+      }
+
+      stopAutoRefresh();
+
+      const prClient = await setupApiClient(config);
+      const attClient = await setupAttachmentsApiClient(config);
+
+      // Check for preserved attachments
+      const preservedAttachmentsExtra = record.extra?.find(e => e.type === 'Preserved attachments')?.value;
+      const preservedAttachmentIds = typeof preservedAttachmentsExtra === 'string' ? preservedAttachmentsExtra.split(',').map(id => id.trim()) : [];
+
+      if (record.attachments.length > 0) {
+        for (const attachment of record.attachments) {
+          // Skip deletion if attachment is preserved
+          if (preservedAttachmentIds.includes(attachment.id?.toString() || '')) {
+            console.log('Skipping deletion of preserved attachment:', attachment.id);
+            continue;
+          }
+          const result = await attClient.delete(attachment.toDTO());
+          if (result.status !== 200) {
+            toast.error('Error removing attachment: ' + attachment.displayName)
+          }
         }
       }
-    }
-    const result = await prClient.delete(record)
-    if (result.status !== 200) {
-      toast.error('Error removing folder record: ' + result.message)
-      return Promise.resolve(false);
-    } else {
-      toast.success('Folder record removed successfully!')
-      setRecords(prvRecords => prvRecords.filter((pr) => pr.id !== record.id));
-      if (dbContext) auditContext.record({ eventName: 'deleteRecord', recordLocator: JSON.stringify([{ recordIds: [record.id] }]) });
+      const result = await prClient.delete(record)
+      if (result.status !== 200) {
+        toast.error('Error removing folder record: ' + result.message)
+        return Promise.resolve(false);
+      } else {
+        toast.success('Folder record removed successfully!')
+        setRecords(prvRecords => prvRecords.filter((pr) => pr.id !== record.id));
+        if (dbContext) auditContext.record({ eventName: 'deleteRecord', recordLocator: JSON.stringify([{ recordIds: [record.id] }]) });
 
-      //chatContext.setRecordsLoaded(false); // reload context next time        
-      return Promise.resolve(true);
+        //chatContext.setRecordsLoaded(false); // reload context next time        
+        return Promise.resolve(true);
+      }
+    } finally {
+      if (typeof record.id === 'number') recordsBeingMutated.delete(record.id);
+      if (folderContext?.currentFolder) startAutoRefresh(folderContext.currentFolder);
     }
   };
 
@@ -1384,6 +1418,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           if (updatedRecord && currentRecord.postParseCallback) {
             await currentRecord.postParseCallback(updatedRecord);
           }
+
+          // Explicitly finish the operation successfully
+          if (currentRecord) {
+            await finishOperation(currentRecord.id!, RegisteredOperations.Parse);
+          }
+
           
           // Check if auto-translation should be triggered for this record
           if (currentRecord && autoTranslateAfterParse.has(currentRecord.id!)) {
@@ -1397,10 +1437,6 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             autoTranslateAfterParse.delete(currentRecord.id!);
           }
           
-          // Explicitly finish the operation successfully
-          if (currentRecord) {
-            await finishOperation(currentRecord.id!, RegisteredOperations.Parse);
-          }
         } catch (error) {
           console.error('Error processing record:', error);
           toast.error('Error processing record: ' + error);
@@ -1458,7 +1494,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     const operationCheck = await checkOngoingOperation(newRecord.id, RegisteredOperations.Parse);
     
     if (operationCheck.hasOngoingOperation) {
-      if (operationCheck.isDifferentSession || !operationCheck.shouldResume) {
+      if (operationCheck.isDifferentSession) {
         // Another session or a different operation is in progress – abort.
         await updateOperationProgress(newRecord, RegisteredOperations.Parse, true, 0, 0, 0, 0, {
           message: `${operationCheck.operation?.operationName || 'Operation'} started on ${operationCheck.operation?.operationStartedOnUserAgent} – last data chunk on ${operationCheck.operation?.operationLastStep}`,
@@ -1725,10 +1761,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     if (typeof record.id === 'number' && recordsBeingTranslated.has(record.id)) {
       console.log('Translation already in progress for record (local set):', record.id, 'skipping');
       return record;
-    }
+   } 
 
     // ---- Cross-session concurrency guard using operation locks ----
     if (typeof record.id === 'number') {
+      // Finally, mark this record as being translated in this session
+      recordsBeingTranslated.add(record.id);    
+
       const opCheck = await checkOngoingOperation(record.id, RegisteredOperations.Translate);
 
       if (opCheck.hasOngoingOperation) {
@@ -1748,6 +1787,8 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
             },
             null
           );
+          recordsBeingTranslated.delete(record.id);     // unlock the record
+
           return record; // Abort – let the other session finish
         }
         // Same session or stale lock (>2 min) – continue/resume below
@@ -1757,12 +1798,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         const lockCreated = await createOperationLock(record.id, RegisteredOperations.Translate);
         if (!lockCreated) {
           console.warn('Unable to create translation lock – aborting for record:', record.id);
+          recordsBeingTranslated.delete(record.id);     // unlock the record
+
           return record;
         }
       }
 
-      // Finally, mark this record as being translated in this session
-      recordsBeingTranslated.add(record.id);
     }
 
     try {
