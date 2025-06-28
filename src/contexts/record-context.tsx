@@ -575,12 +575,12 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
   // Shared helper function for processing fetched records
   const processFetchedRecords = async (
     fetchedRecords: Record[], 
-    updateAvailableTags: boolean = false,
+    fullUpdate: boolean = false,
     executionTime: number,
     requestedRecordIds?: number[]
   ) => {
     // Only update available tags if requested (for full refresh)
-    if (updateAvailableTags) {
+    if (fullUpdate) {
       const fetchedTags = fetchedRecords.reduce((tags: FilterTag[], record: Record) => {
         const uniqueTags = record.tags && record.tags.length > 0 ? record.tags : [];
         uniqueTags.forEach(tag => {
@@ -599,21 +599,14 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     
     // Check for recent operations and update operationInProgress status
     // This will also merge the fetched records with existing records and return the final merged list
-    const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords);
+    const recordsWithOperationStatus = await checkRecentOperations(fetchedRecords, fullUpdate);
     
     // Filter out records that were locally deleted in this session
     let mergedList = (recordsWithOperationStatus || []).filter(r => !(typeof r.id === 'number' && locallyDeletedRecordIds.has(r.id)));
 
-    // If this was a partial request with explicit recordIds, remove any records that were expected but not returned (they were likely deleted on another device)
-    if (updateAvailableTags) {
-      const fetchedIdSet = new Set(fetchedRecords.map(r => r.id));
-      mergedList = mergedList.filter(r => fetchedIdSet.has(r.id));
-    }
 
     if (requestedRecordIds && requestedRecordIds.length > 0) {
       const returnedIds = new Set(mergedList.map(r => r.id));
-      mergedList = mergedList.filter(r => !requestedRecordIds.includes(r.id as number) || returnedIds.has(r.id));
-
       // Also remove from existing list any records that are missing
       const missingIds = requestedRecordIds.filter(id => !returnedIds.has(id));
       if (missingIds.length > 0) {
@@ -662,7 +655,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
   };
 
-  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number, updateAvailableTags: boolean = false) => {
+  const listRecordsPartial = async (forFolder: Folder, recordIds?: number[], newerThan?: string, newerThanId?: number) => {
     const startTime = Date.now();
     try {
       const client = await setupApiClient(config);
@@ -678,7 +671,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       const fetchedRecords = response.map((recordDTO: RecordDTO) => Record.fromDTO(recordDTO));
 
       const executionTime = Date.now() - startTime;
-      return await processFetchedRecords(fetchedRecords, updateAvailableTags, executionTime, recordIds);
+      return await processFetchedRecords(fetchedRecords, false, executionTime, recordIds);
     } catch (error) {
       // Calculate execution time even on error
       const executionTime = Date.now() - startTime;
@@ -743,6 +736,13 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           !record.operationInProgress && 
           !record.operationError && 
           (new Date().getTime() - new Date(record.updatedAt).getTime()) < 1000 * 60 * 60;
+      const hasTranslations = record.extra?.find(e => e.type === 'Reference record Ids');
+
+      const needsTranslation = autoTranslate && !hasTranslations &&
+          !record.operationInProgress && 
+          !record.operationError && 
+          (new Date().getTime() - new Date(record.updatedAt).getTime()) < 1000 * 60 * 60;
+
       
       if (needsParsing) {
         console.log('Adding to parse queue - needs parsing:', record.id, 'json exists:', hasJson, 'checksum mismatch:', checksumMismatch, 'checksum:', record.checksum, 'checksumLastParsed:', record.checksumLastParsed);
@@ -761,8 +761,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         // Even if record is already parsed, check if auto-translation is needed
         if (autoTranslate) {
           // Check if this record already has translations
-          const hasTranslations = record.extra?.find(e => e.type === 'Reference record Ids');
-          if (!hasTranslations) {
+          if (needsTranslation) {
             console.log('Auto-translate enabled for already parsed record:', record.id);
             
             // Check for ongoing translation operations to prevent duplicate translations
@@ -825,7 +824,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     return finishedOperations;
   };
 
-  const checkRecentOperations = async (records: Record[]) => {
+  const checkRecentOperations = async (records: Record[], fullUpdate: boolean = false) => {
     try {
       const operationsApi = getOperationsApiClient();
       const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
@@ -835,7 +834,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
       
       if (recordIds.length === 0) {
         // If no records to check, just merge fetched records with existing records
-        return mergeRecordsWithExisting(records);
+        return fullUpdate ? records : mergeRecordsWithExisting(records);
       }
       
       // Fetch operations for all records in a single request
@@ -941,7 +940,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
         });
         
         // Merge the updated records with existing records and return the final merged list
-        const finalMergedRecords = mergeRecordsWithExisting(updatedRecords);
+        const finalMergedRecords = fullUpdate ? updatedRecords : mergeRecordsWithExisting(updatedRecords);
         
         // Process the parse queue if we added any records for resuming
         if (parseQueue.length > 0 && !parseQueueInProgress) {
@@ -955,7 +954,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     }
     
     // If there was an error or no operations found, just merge fetched records with existing records
-    return mergeRecordsWithExisting(records);
+    return fullUpdate ? records : mergeRecordsWithExisting(records);
   };
 
   // Helper function to merge fetched records with existing records
@@ -2054,7 +2053,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
           // Use partial update if we have specific records to update
           if (recordIdsArray.length > 0 || newerThan) {
             console.log('Using partial update for', recordIdsArray.length, 'records and newer than', newerThan);
-            await listRecordsPartial(forFolder, recordIdsArray.length > 0 ? recordIdsArray : undefined, newerThan, lastUpdateResponse.data.recordId || 0, false);
+            await listRecordsPartial(forFolder, recordIdsArray.length > 0 ? recordIdsArray : undefined, newerThan, lastUpdateResponse.data.recordId || 0);
           } else {
             // Fall back to full refresh if no specific records to update
             await listRecords(forFolder);
@@ -2082,7 +2081,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
               
               // Use partial update for records with finished operations
               const finishedRecordIds = recentFinishedOperations.map(op => op.recordId);
-              await listRecordsPartial(forFolder, finishedRecordIds, undefined, undefined, false);
+              await listRecordsPartial(forFolder, finishedRecordIds, undefined, undefined);
               return recentFinishedOperations[0].operationLastStep;
             }
           }
@@ -2106,7 +2105,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     if (forceRestart || refreshIntervalRef.current) {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
-        console.log('Cleared existing auto-refresh interval');
+        //console.log('Cleared existing auto-refresh interval');
       }
     } else if (refreshIntervalRef.current) {
       // If not forcing restart and interval exists, don't modify it
@@ -2119,7 +2118,7 @@ export const RecordContextProvider: React.FC<PropsWithChildren> = ({ children })
     // Calculate safe interval based on execution time
     const intervalMs = calculateSafeInterval(hasOperationsInProgress);
     
-    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
+//    console.log(`Starting auto-refresh interval with ${intervalMs}ms (operations in progress: ${hasOperationsInProgress}, execution time: ${lastListRecordsExecutionTimeRef.current}ms)`);
     
     // Set new interval
     refreshIntervalRef.current = setInterval(async () => {
