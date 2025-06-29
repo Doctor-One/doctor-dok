@@ -136,6 +136,7 @@ export type ChatContextType = {
     sendMessages: (msg: CreateMessagesEnvelope, includeExistingMessagesAsContext?: boolean) => void;
     autoCheck: (messages: MessageEx[], providerName?: string, modelName?: string) => void;
     agentFinishedDialogOpen: boolean;
+    setAgentFinishedDialogOpen: (open: boolean) => void;
     agentFinishMessage: string;
     chatOpen: boolean,
     setChatOpen: (value: boolean) => void;
@@ -184,6 +185,7 @@ export const ChatContext = createContext<ChatContextType>({
     sendMessages: (msg: CreateMessagesEnvelope, includeExistingMessagesAsContext: boolean = true) => {},
     chatOpen: false,
     agentFinishedDialogOpen: false,
+    setAgentFinishedDialogOpen: (open: boolean) => {},
     agentFinishMessage: '',
     setChatOpen: (value: boolean) => {},
     isStreaming: false,

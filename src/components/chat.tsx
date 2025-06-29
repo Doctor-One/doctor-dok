@@ -268,7 +268,9 @@ export function Chat() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>No</AlertDialogCancel>
+              <AlertDialogCancel onClick={(e) => {
+                chatContext.setAgentFinishedDialogOpen(false);
+              }}>No</AlertDialogCancel>
               <AlertDialogAction onClick={(e) => 
                 {
                   chatContext.newChat();
